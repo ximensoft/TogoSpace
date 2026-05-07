@@ -139,15 +139,21 @@ class TestGetOrCreateControlRoom(ServiceTestCase):
         assert room.state != RoomState.INIT
 
     async def test_supervise_schedules_ai_agent(self):
-        """supervise 流程：OPERATOR 发消息 + finish_turn 后应调度 AI agent（need_scheduling=True）。
+        """supervise 流程：bob 完成轮次进入 IDLE 后，OPERATOR 发消息应再次调度 bob（need_scheduling=True）。
 
-        回归测试：旧代码对 max_rounds=-1 用 <= 0 判断，导致控制房间 finish_turn(OPERATOR)
+        回归测试：旧代码对 max_rounds=-1 用 <= 0 判断，导致控制房间 OPERATOR 发消息
         后进入 IDLE 而不是调度 AI agent。
         """
         bob_id = await self._get_agent_id("bob")
         room, _ = await roomService.get_or_create_control_room(self.team_id, bob_id)
 
-        # 确保房间在 IDLE 状态（控制房间激活后等待 OPERATOR 输入）
+        # 激活后 OPERATOR 被跳过，bob 立即被调度
+        assert room.state == RoomState.SCHEDULING
+
+        # bob 完成本轮（无内容）→ all AI skipped → 房间进入 IDLE
+        with patch("service.messageBus.publish"):
+            ok = await room.handle_finish_request(bob_id)
+            assert ok is True
         assert room.state == RoomState.IDLE
 
         published_events: list = []
@@ -159,8 +165,8 @@ class TestGetOrCreateControlRoom(ServiceTestCase):
             return original_publish(topic, **kwargs)
 
         with patch.object(_mb, "publish", side_effect=capture_publish):
+            # OPERATOR 发消息从 IDLE 唤醒，自动触发 handle_finish_request(OPERATOR)
             await room.add_message(room.OPERATOR_MEMBER_ID, "hello")
-            await room.handle_finish_request(room.OPERATOR_MEMBER_ID)
 
         # 最后一个 ROOM_STATUS_CHANGED 事件应为 SCHEDULING + need_scheduling=True
         status_events = [

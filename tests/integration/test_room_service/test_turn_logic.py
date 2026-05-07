@@ -416,7 +416,7 @@ class TestRoomTurnLogic(ServiceTestCase):
 
     async def test_two_agent_group_still_waits_for_operator_turn(self):
         """
-        测试点：两人群里遇到 Operator 时，仍保持等待逻辑，但不再发布特殊成员 turn 事件。
+        测试点：两人群里 OPERATOR 始终被跳过，alice 完成发言后应再次被调度（而非进入 IDLE）。
         """
         room_name = "operator_wait_group"
         agents = ["alice", "OPERATOR"]
@@ -431,48 +431,45 @@ class TestRoomTurnLogic(ServiceTestCase):
             ok = await room.handle_finish_request(alice_id)
             assert ok is True
 
+        # OPERATOR 被跳过，alice 再次被调度
+        assert room.state == RoomState.SCHEDULING
+        assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == "alice"
         turn_calls = [
             c for c in mock_publish.call_args_list
             if c[0][0] == MessageBusTopic.ROOM_STATUS_CHANGED
             and c[1].get("state") == RoomState.SCHEDULING
             and c[1].get("current_turn_agent_id") is not None
         ]
-        assert turn_calls == []
-        assert room.state == RoomState.IDLE
-        assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == SpecialAgent.OPERATOR.name
-        idle_calls = [
-            c for c in mock_publish.call_args_list
-            if c[0][0] == MessageBusTopic.ROOM_STATUS_CHANGED
-            and c[1].get("state") == RoomState.IDLE
-        ]
-        assert len(idle_calls) == 1
+        assert len(turn_calls) == 1
 
     async def test_operator_alias_matches_on_turn_checks(self):
         """
-        测试点：当前发言位是配置中的 "OPERATOR" 时，运行态传入 OPERATOR_MEMBER_ID
-        应识别为同一 SpecialAgent，不应被判定为插话或非法结束轮次。
+        测试点：agents 列表包含 "OPERATOR" 时，OPERATOR 始终被跳过，alice 直接被调度。
+        配置中的 "OPERATOR" 字符串与运行态的 OPERATOR_MEMBER_ID 等价。
         """
         room_name = "operator_alias"
         agents = ["OPERATOR", "alice"]
         await self.create_room(TEAM, room_name, agents, max_rounds=10)
         room = roomService.get_room_by_key(f"{room_name}@{TEAM}")
         assert await room.activate_scheduling()
-        assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == SpecialAgent.OPERATOR.name
+        # OPERATOR 被跳过，alice 直接被调度
+        assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == "alice"
 
         with patch("service.messageBus.publish"):
-            # add_message 内部自动触发 handle_finish_request(OPERATOR)，无需显式调用
+            # OPERATOR 发消息不影响当前发言位（alice 仍是当前发言人）
             await room.add_message(room.OPERATOR_MEMBER_ID, "hello from operator")
 
         assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == "alice"
 
     async def test_private_room_idle_when_operator_is_next(self):
         """
-        测试点：PRIVATE 房间 AI 发言结束后，发言位变为 OPERATOR，
-        房间应切换到 IDLE 状态并广播，前端可正确显示"空闲"。
+        测试点：PRIVATE 房间 AI 完成发言后，OPERATOR 被跳过，
+        同一 AI 将再次被轮到，触发私聊停止条件 2（同一 Agent 连续两轮），
+        房间切换到 IDLE 状态，前端可正确显示"空闲"。
         """
         room_name = "priv_idle"
         agents = ["alice", "OPERATOR"]
-        await self.create_room(TEAM, room_name, agents, max_rounds=10)
+        await self.create_room(TEAM, room_name, agents, room_type=RoomType.PRIVATE, max_rounds=10)
         room = roomService.get_room_by_key(f"{room_name}@{TEAM}")
         await room.activate_scheduling()
         assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == "alice"
@@ -484,7 +481,7 @@ class TestRoomTurnLogic(ServiceTestCase):
             assert ok is True
 
         assert room.state == RoomState.IDLE
-        assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == SpecialAgent.OPERATOR.name
+        assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == "alice"
         idle_calls = [
             c for c in mock_publish.call_args_list
             if c[0][0] == MessageBusTopic.ROOM_STATUS_CHANGED

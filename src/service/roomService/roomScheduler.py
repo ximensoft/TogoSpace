@@ -80,17 +80,9 @@ class RoomScheduler:
             self._current_round_skipped_set = set()
             self.current_turn_has_content = False
             self._state = RoomState.SCHEDULING
-            # PRIVATE（或 GROUP ≤2）中 OPERATOR 本身处于当前发言位时，先推进一步
-            if (self.get_current_turn_agent_id() == self.OPERATOR_MEMBER_ID
-                    and not self._should_skip()):
-                self._go_next_agent()
             next_id = self._advance_to_first_dispatchable()
             if next_id is not None:
                 self.publish_status(next_id, need_scheduling=True)
-            else:
-                if self._state == RoomState.SCHEDULING:
-                    self._state = RoomState.IDLE
-                self.publish_status()
             return True
 
         current_id = self.get_current_turn_agent_id()
@@ -118,10 +110,6 @@ class RoomScheduler:
         next_id = self._advance_to_first_dispatchable()
         if next_id is not None:
             self.publish_status(next_id, need_scheduling=True)
-        else:
-            if self._state == RoomState.SCHEDULING:
-                self._state = RoomState.IDLE
-            self.publish_status()
         return True
 
     def activate(self) -> None:
@@ -130,10 +118,6 @@ class RoomScheduler:
         next_id = self._advance_to_first_dispatchable()
         if next_id is not None:
             self.publish_status(current_turn_agent_id=next_id, need_scheduling=True)
-        else:
-            if self._state == RoomState.SCHEDULING:
-                self._state = RoomState.IDLE
-            self.publish_status()
 
     def cancel_current_turn(self) -> None:
         """人工停止 → IDLE。"""
@@ -163,12 +147,8 @@ class RoomScheduler:
         self.current_turn_has_content = False
 
     def _should_skip(self) -> bool:
-        """当前发言人是否应被自动跳过并继续推进（多人群聊中的 Operator）。"""
-        return (
-            self.get_current_turn_agent_id() == self.OPERATOR_MEMBER_ID
-            and self._gt_room.type == RoomType.GROUP
-            and len(self._gt_room.agent_ids) > 2
-        )
+        """当前发言人是否应被自动跳过并继续推进（Operator 始终跳过）。"""
+        return self.get_current_turn_agent_id() == self.OPERATOR_MEMBER_ID
 
     def _should_stop(self) -> bool:
         """当前是否已达到停止调度的条件。"""
@@ -203,9 +183,6 @@ class RoomScheduler:
                 self._current_round_skipped_set.add(agent_id)
                 self._go_next_agent()
                 continue
-
-            if agent_id == self.OPERATOR_MEMBER_ID:
-                return None  # 等待外部输入
 
             return agent_id
 
