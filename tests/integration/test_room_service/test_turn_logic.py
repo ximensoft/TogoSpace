@@ -127,10 +127,10 @@ class TestRoomTurnLogic(ServiceTestCase):
 
     async def test_idle_wakeup_logic(self):
         """
-        测试点：最大轮次限制后的唤醒机制
+        测试点：最大轮次限制后的唤醒机制（由 OPERATOR 发消息触发）
         """
         room_name = "test_idle"
-        agents = ["alice", "bob"]
+        agents = ["alice", "bob", "OPERATOR"]
         room_key = f"{room_name}@{TEAM}"
         await self.create_room(TEAM, room_name, agents, max_rounds=1)
         room = roomService.get_room_by_key(room_key)
@@ -149,7 +149,7 @@ class TestRoomTurnLogic(ServiceTestCase):
         assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == "alice"  # 绕回首位
 
         with patch("service.messageBus.publish") as mock_publish:
-            await room.add_message(bob_id, "wait, one more thing")
+            await room.add_message(room.OPERATOR_MEMBER_ID, "wait, one more thing")
 
             assert room.state == RoomState.SCHEDULING
             assert room._round_count == 0
@@ -243,10 +243,10 @@ class TestRoomTurnLogic(ServiceTestCase):
     async def test_all_skip_wakeup_based_on_state_not_round_count(self):
         """
         测试点：全员跳过进入 IDLE 时，_round_count 不会被人为抬高到 _max_rounds；
-        唤醒逻辑只依赖房间状态（IDLE），与 _round_count 无关。
+        唤醒逻辑只依赖房间状态（IDLE），与 _round_count 无关。由 OPERATOR 发消息触发唤醒。
         """
         room_name = "skip_idx"
-        agents = ["alice", "bob"]
+        agents = ["alice", "bob", "OPERATOR"]
         room_key = f"{room_name}@{TEAM}"
         await self.create_room(TEAM, room_name, agents, max_rounds=10)
         room = roomService.get_room_by_key(room_key)
@@ -261,10 +261,9 @@ class TestRoomTurnLogic(ServiceTestCase):
         assert room._round_count == 0
         assert room._round_count < room._max_rounds
 
-        # 即便 _round_count 远小于 _max_rounds，发消息依然能唤醒房间
-        alice_id = await self._get_agent_id("alice")
+        # 即便 _round_count 远小于 _max_rounds，OPERATOR 发消息依然能唤醒房间
         with patch("service.messageBus.publish"):
-            await room.add_message(alice_id, "back")
+            await room.add_message(room.OPERATOR_MEMBER_ID, "back")
 
         assert room.state == RoomState.SCHEDULING
         assert room._round_count == 0
@@ -495,11 +494,11 @@ class TestRoomTurnLogic(ServiceTestCase):
 
     async def test_skip_set_resets_each_round(self):
         """
-        测试点：每轮的跳过记录互不干扰——第一轮全员跳过停止后唤醒，
-        第二轮部分跳过不应再次停止。
+        测试点：每轮的跳过记录互不干扰——第一轮全员跳过停止后，
+        OPERATOR 唤醒后 skip_set 已重置，第二轮部分跳过不应再次停止。
         """
         room_name = "skip_reset"
-        agents = ["alice", "bob"]
+        agents = ["alice", "bob", "OPERATOR"]
         await self.create_room(TEAM, room_name, agents, max_rounds=10)
         room = roomService.get_room_by_key(f"{room_name}@{TEAM}")
         assert await room.activate_scheduling()
@@ -513,16 +512,15 @@ class TestRoomTurnLogic(ServiceTestCase):
         assert room.state == RoomState.IDLE
 
         with patch("service.messageBus.publish"):
-            # alice 发消息唤醒房间，同时推进到 bob
-            await room.add_message(alice_id, "I'm back")
-            await room.handle_finish_request(alice_id)
+            # OPERATOR 发消息唤醒房间，skip_set 重置，bob 继续（保留 index）
+            await room.add_message(room.OPERATOR_MEMBER_ID, "I'm back")
         assert room.state == RoomState.SCHEDULING
 
         with patch("service.messageBus.publish"):
-            # 第二轮：只有 bob 跳过，alice 已发言
+            # 第二轮：只有 bob 跳过，alice 未跳过（skip_set 已重置）
             await room.handle_finish_request(bob_id)
 
-        # 第二轮不是全员跳过（alice 正常发言），房间应继续调度
+        # 第二轮不是全员跳过，房间应继续调度
         assert room.state == RoomState.SCHEDULING
 
     async def test_sliding_window_skip_stop(self):
