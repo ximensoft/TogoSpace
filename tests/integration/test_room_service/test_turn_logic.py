@@ -145,8 +145,8 @@ class TestRoomTurnLogic(ServiceTestCase):
         await room.handle_finish_request(bob_id)
 
         assert room.state == RoomState.IDLE
-        assert room._round_count == 0
-        assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == "bob"
+        assert room._round_count == 1  # 末位绕回触发轮次计数自增
+        assert gtAgentManager.get_agent_name(room.get_current_turn_agent_id()) == "alice"  # 绕回首位
 
         with patch("service.messageBus.publish") as mock_publish:
             await room.add_message(bob_id, "wait, one more thing")

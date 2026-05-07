@@ -58,7 +58,7 @@ class ChatRoom:
 
     @property
     def _round_skipped_set(self) -> set[int]:
-        return self._scheduler._round_skipped_set
+        return self._scheduler._current_round_skipped_set
 
     @property
     def current_turn_has_content(self) -> bool:
@@ -222,12 +222,12 @@ class ChatRoom:
             messageBus.publish(MessageBusTopic.ROOM_MSG_ADDED, gt_room=self.gt_room, gt_message=message)
 
         if not insert_immediately and not is_queued and update_turn_state and self._agent_ids:
-            wake_result = self._scheduler.on_message(sender_id)
-            if wake_result is not None:
+            next_agent_id = self._scheduler.on_message(sender_id)
+            if next_agent_id is not None:
                 if self._scheduler.is_idle():
                     self._scheduler.publish_status()
                 else:
-                    self._scheduler.publish_status(wake_result, need_scheduling=True)
+                    self._scheduler.publish_status(next_agent_id, need_scheduling=True)
 
     async def flush_pending_immediate_messages(self) -> None:
         await self._store.flush_pending_immediate()

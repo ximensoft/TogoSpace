@@ -40,6 +40,7 @@ class RoomScheduler:
         self._current_round_skipped_set: set[int] = set()
         self.current_turn_has_content: bool = False
         self._state: RoomState = RoomState.INIT
+        self._last_speaker_id: int | None = None
 
     # ─── 外部可读属性 ──────────────────────────────────────
 
@@ -61,6 +62,7 @@ class RoomScheduler:
             self._current_speaker_index = 0
         self._current_round_skipped_set = set()
         self.current_turn_has_content = False
+        self._last_speaker_id = None
 
     # ─── turn 生命周期 ──────────────────────────────────────
 
@@ -89,6 +91,7 @@ class RoomScheduler:
         if self._stop_if_done():
             return True
 
+        self._last_speaker_id = caller_agent_id
         self._go_next_agent()
         await self.persist_state()
         next_id = self._advance_to_first_dispatchable()
@@ -102,12 +105,14 @@ class RoomScheduler:
 
     def activate(self) -> None:
         """激活：退出 INIT → 找下一位可调度 Agent → 决定状态 → 发布。"""
-        self._state = RoomState.IDLE
+        self._state = RoomState.SCHEDULING
         next_id = self._advance_to_first_dispatchable()
         if next_id is not None:
-            self._state = RoomState.SCHEDULING
-        self.publish_status(current_turn_agent_id=next_id,
-                            need_scheduling=next_id is not None)
+            self.publish_status(current_turn_agent_id=next_id, need_scheduling=True)
+        else:
+            if self._state == RoomState.SCHEDULING:
+                self._state = RoomState.IDLE
+            self.publish_status()
 
     def cancel_current_turn(self) -> None:
         """人工停止 → IDLE。"""
@@ -125,6 +130,8 @@ class RoomScheduler:
         if self._state in (RoomState.IDLE, RoomState.INIT):
             logger.info("检测到房间 %s 的活动 (agent=%s)，重置轮次计数器并唤醒房间",
                          self._key, gtAgentManager.get_agent_name(sender_id))
+            if sender_id == self.OPERATOR_MEMBER_ID:
+                self._last_speaker_id = None
             self._round_count = 0
             self._current_round_skipped_set = set()
             self.current_turn_has_content = False
@@ -132,15 +139,16 @@ class RoomScheduler:
             self._state = RoomState.SCHEDULING
             if self._stop_if_done():
                 return None
-            result = self._advance_to_first_dispatchable()
+
+            next_agent_id = self._advance_to_first_dispatchable()
         else:
-            result = None
+            next_agent_id = None
 
         if sender_id == self.get_current_turn_agent_id():
             self.current_turn_has_content = True
         elif sender_id != self.SYSTEM_MEMBER_ID and self._current_round_skipped_set:
             self._current_round_skipped_set = set()
-        return result
+        return next_agent_id
 
     def is_idle(self) -> bool:
         return self._state == RoomState.IDLE
@@ -155,53 +163,58 @@ class RoomScheduler:
             self._round_count += 1
         self.current_turn_has_content = False
 
+    def _should_skip(self) -> bool:
+        """当前发言人是否应被自动跳过（不安排 turn）。"""
+        return self.get_current_turn_agent_id() == self.OPERATOR_MEMBER_ID
+
+    def _should_stop(self) -> bool:
+        """当前是否已达到停止调度的条件。"""
+        if self._gt_room.type == RoomType.PRIVATE:
+            # 私聊停止条件 1：所有 AI 成员均已跳过发言
+            ai_ids = {aid for aid in self._gt_room.agent_ids if aid != self.OPERATOR_MEMBER_ID}
+            if ai_ids and ai_ids.issubset(self._current_round_skipped_set):
+                return True
+            # 私聊停止条件 2：轮到同一个 agent，且上次也是该 agent 发言（Operator 未介入）
+            if (self._last_speaker_id is not None
+                    and self._last_speaker_id == self.get_current_turn_agent_id()):
+                return True
+            return False
+        if self._gt_room.type == RoomType.GROUP:
+            # 群聊停止条件 1：已完成最大轮次（_go_next_agent 末位绕回时 round_count 自增至 max_rounds）
+            if self._gt_room.max_rounds > 0 and self._round_count >= self._gt_room.max_rounds:
+                return True
+            # 群聊停止条件 2：所有 AI 成员均已跳过发言
+            ai_ids = {aid for aid in self._gt_room.agent_ids if aid != self.OPERATOR_MEMBER_ID}
+            return bool(ai_ids and ai_ids.issubset(self._current_round_skipped_set))
+        return False
+
     def _advance_to_first_dispatchable(self) -> Optional[int]:
-        """从当前发言位向前推进，跳过不可调度的成员（如 GROUP 中的 OPERATOR）。
-        遇到 SpecialAgent 等待输入时返回 None。"""
+        """从当前发言位向前推进，找到下一个可调度的 Agent。"""
         while True:
+            if self._stop_if_done():
+                return None
+
             agent_id = self.get_current_turn_agent_id()
 
-            if self._skip_operator_if_needed():
-                if self._stop_if_done():
-                    return None
-                continue
-
-            if agent_id in (self.SYSTEM_MEMBER_ID, self.OPERATOR_MEMBER_ID):
-                logger.info(
-                    "当前发言位为特殊成员，等待外部输入: room=%s, agent=%s",
-                    self._key, gtAgentManager.get_agent_name(agent_id),
-                )
+            if self._should_skip():
+                self._current_round_skipped_set.add(agent_id)
+                # 多人群聊自动跳过 Operator，继续推进；否则停在此位等待外部输入
+                if (self._gt_room.type == RoomType.GROUP
+                        and len(self._gt_room.agent_ids) > 2):
+                    self._go_next_agent()
+                    continue
                 return None
 
             return agent_id
 
-    def _skip_operator_if_needed(self) -> bool:
-        """GROUP 房间（>2人）中自动跳过 OPERATOR，返回是否跳过了。"""
-        agent_id = self.get_current_turn_agent_id()
-        if agent_id == self.OPERATOR_MEMBER_ID and self._gt_room.type == RoomType.GROUP and len(self._gt_room.agent_ids) > 2:
-            self._current_round_skipped_set.add(agent_id)
-            self._go_next_agent()
-            return True
-        return False
-
     def _stop_if_done(self) -> bool:
-        """检查停止条件，满足则进入 IDLE 并发布，返回 True。"""
+        """若已到终止条件，切换到 IDLE 并广播，返回 True；否则返回 False。"""
         if self._state == RoomState.IDLE:
             return True
-
-        if (self._gt_room.max_rounds > 0
-            and self._round_count == self._gt_room.max_rounds - 1
-            and self._current_speaker_index == len(self._gt_room.agent_ids) - 1):
-            reason = f"已达到最大轮次 {self._gt_room.max_rounds}"
-        else:
-            ai_ids = {aid for aid in self._gt_room.agent_ids if aid != self.OPERATOR_MEMBER_ID}
-            if ai_ids and ai_ids.issubset(self._current_round_skipped_set):
-                reason = "所有 AI 成员均已跳过发言"
-            else:
-                return False
-
+        if not self._should_stop():
+            return False
         self._state = RoomState.IDLE
-        logger.info("房间 %s %s，停止调度", self._key, reason)
+        logger.info("房间 %s 停止调度", self._key)
         self.publish_status(current_turn_agent_id=None)
         return True
 
