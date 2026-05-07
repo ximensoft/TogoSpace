@@ -16,7 +16,7 @@
       "name": "general",
       "agents": ["alice", "bob"],
       "initial_topic": "hello",
-      "max_turns": 5
+      "max_rounds": 5
     }
   ]
 }

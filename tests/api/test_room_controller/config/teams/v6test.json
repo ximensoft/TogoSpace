@@ -26,13 +26,13 @@
       "name": "alice_private",
       "agents": ["OPERATOR", "alice"],
       "initial_topic": "v6 private test",
-      "max_turns": 10
+      "max_rounds": 10
     },
     {
       "name": "public_group",
       "agents": ["alice", "bob"],
       "initial_topic": "v6 group test",
-      "max_turns": 10
+      "max_rounds": 10
     }
   ]
 }

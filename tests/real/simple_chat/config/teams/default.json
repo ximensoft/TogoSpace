@@ -16,7 +16,7 @@
       "name": "general",
       "agents": ["alice", "bob"],
       "initial_topic": "大家好！",
-      "max_turns": 1
+      "max_rounds": 1
     }
   ]
 }

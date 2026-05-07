@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 
@@ -106,14 +107,27 @@ class TestPersistenceRestoreIntegration(ServiceTestCase):
             res = replies[name].pop(0) if name and replies[name] else {"tool_calls": [{"name": "send_chat_msg", "arguments": {"room_name": "general", "msg": "..."}}]}
             return self.normalize_to_mock(res)
 
-        with self.patch_infer(handler=fake_infer):
-            await room.activate_scheduling()
-            await self.wait_until(
-                lambda: any(m.content == "from alice" for m in room.messages)
-                and any(m.content == "from bob" for m in room.messages),
-                timeout=2.0,
-                message="恢复前的对话未在限时内完成",
-            )
+        from constants import MessageBusTopic
+        alice_arrived = asyncio.Event()
+        bob_arrived = asyncio.Event()
+
+        def on_msg(msg):
+            m = msg.payload.get("gt_message")
+            if m and m.content == "from alice":
+                alice_arrived.set()
+            elif m and m.content == "from bob":
+                bob_arrived.set()
+
+        messageBus.subscribe(MessageBusTopic.ROOM_MSG_ADDED, on_msg)
+        try:
+            with self.patch_infer(handler=fake_infer):
+                await room.activate_scheduling()
+                await asyncio.wait_for(
+                    asyncio.gather(alice_arrived.wait(), bob_arrived.wait()),
+                    timeout=2.0
+                )
+        finally:
+            messageBus.unsubscribe(MessageBusTopic.ROOM_MSG_ADDED, on_msg)
 
         assert any(m.content == "from alice" for m in room.messages)
         assert any(m.content == "from bob" for m in room.messages)

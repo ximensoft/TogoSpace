@@ -15,7 +15,7 @@
     {
       "name": "general",
       "agents": ["alice", "bob"],
-      "max_turns": 2
+      "max_rounds": 2
     }
   ]
 }

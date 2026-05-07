@@ -65,7 +65,7 @@
       "name": "主持人",
       "agents": ["OPERATOR", "主持人"],
       "initial_topic": "和主持人单独沟通，讨论头脑风暴的策划与准备工作。",
-      "max_turns": 100,
+      "max_rounds": 100,
       "i18n": {
         "display_name": {
           "zh-CN": "主持人",
