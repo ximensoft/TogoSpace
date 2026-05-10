@@ -27,52 +27,26 @@ def test_normalize_driver_config_supports_claude_sdk_driver_with_allowed_tools()
     assert cfg.options["allowed_tools"] == ["Read", "Write"]
 
 
-def test_normalize_driver_config_prefers_explicit_driver_block():
+def test_normalize_driver_config_filters_local_and_category_allowed_tools_for_claude_sdk():
     cfg = normalize_driver_config(
         {
             "name": "alice",
             "model": "test",
-            "allowed_tools": ["Old"],
-            "driver": {
-                "type": "claude_sdk",
-                "allowed_tools": ["Read"],
-                "max_rounds": 50,
-            },
+            "driver": "claude_sdk",
+            "allowed_tools": ["Read", "Category:Read", "get_time", "send_chat_msg"],
         }
     )
     assert cfg.driver_type == DriverType.CLAUDE_SDK
-    assert cfg.options == {"allowed_tools": ["Read"], "max_rounds": 50}
+    assert cfg.options["allowed_tools"] == ["Read"]
 
 
-def test_normalize_driver_config_supports_legacy_runtime_block():
+def test_normalize_driver_config_supports_driver_type_enum():
     cfg = normalize_driver_config(
         {
             "name": "alice",
             "model": "test",
-            "runtime": {
-                "type": "claude_sdk",
-                "allowed_tools": ["Read"],
-                "max_rounds": 80,
-            },
-        }
-    )
-    assert cfg.driver_type == DriverType.CLAUDE_SDK
-    assert cfg.options == {"allowed_tools": ["Read"], "max_rounds": 80}
-
-
-def test_normalize_driver_config_supports_tsp_driver_block():
-    cfg = normalize_driver_config(
-        {
-            "name": "intern_tsp",
-            "driver": {
-                "type": "tsp",
-                "request_timeout_sec": 45,
-                "tool_include": ["list_dir", "read_file"],
-            },
+            "driver": DriverType.TSP,
         }
     )
     assert cfg.driver_type == DriverType.TSP
-    assert cfg.options == {
-        "request_timeout_sec": 45,
-        "tool_include": ["list_dir", "read_file"],
-    }
+    assert cfg.options == {}
