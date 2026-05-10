@@ -9,7 +9,7 @@ from model.dbModel.gtAgent import GtAgent
 from service.agentService.agent import Agent
 from service.agentService.driver import normalize_driver_config
 from service.agentService.promptBuilder import build_agent_system_prompt
-from service import llmService, roomService, persistenceService
+from service import llmService, roomService, persistenceService, deptService
 from dal.db import gtTeamManager, gtAgentManager, gtRoleTemplateManager, gtAgentTaskManager
 from peewee import IntegrityError
 from exception import TogoException
@@ -74,6 +74,8 @@ async def _load_team_agents(team_id: int, workspace_root: str | None = None) -> 
         [agent.role_template_id for agent in gt_agents]
     )
     templates_by_id = {template.id: template for template in gt_role_templates}
+    dept_root = await deptService.get_dept_tree(team_id)
+    top_manager_id = dept_root.manager_id if dept_root is not None else None
 
     app_config = configUtil.get_app_config()
     default_model = llmService.get_default_model_or_none()
@@ -117,6 +119,7 @@ async def _load_team_agents(team_id: int, workspace_root: str | None = None) -> 
 
         # model 用于日志记录，推理时如果 gt_agent.model 为空则使用配置中的 model
         model_name = gt_agent.model or gt_role_template.model or default_model or ""
+        is_root_leader = top_manager_id is not None and gt_agent.id == top_manager_id
         driver_config = normalize_driver_config(
             {
                 "driver": gt_agent.driver,
@@ -141,14 +144,16 @@ async def _load_team_agents(team_id: int, workspace_root: str | None = None) -> 
             system_prompt=full_prompt,
             driver_config=driver_config,
             agent_workdir=team_workdir,
+            is_root_leader=is_root_leader,
         )
         _agents[gt_agent.id] = agent
         logger.info(
-            "创建 Agent 实例: agent_id=%s, template=%s, model=%s, driver=%s",
+            "创建 Agent 实例: agent_id=%s, template=%s, model=%s, driver=%s, is_root_leader=%s",
             gt_agent.id,
             template_name,
             model_name or "<unconfigured>",
             driver_config.driver_type,
+            is_root_leader,
         )
         await agent.startup()
 

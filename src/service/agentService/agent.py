@@ -32,9 +32,11 @@ class Agent:
         system_prompt: str,
         driver_config: Optional[AgentDriverConfig] = None,
         agent_workdir: str = "",
+        is_root_leader: bool = False,
     ):
         self.gt_agent: GtAgent = gt_agent
         self.system_prompt: str = system_prompt
+        self.is_root_leader: bool = is_root_leader
         self.task_consumer: AgentTaskConsumer = AgentTaskConsumer(
             gt_agent=gt_agent,
             system_prompt=system_prompt,

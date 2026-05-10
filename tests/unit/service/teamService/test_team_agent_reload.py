@@ -91,11 +91,12 @@ async def test_load_team_agents_allows_startup_without_available_llm(monkeypatch
     started: list[int] = []
 
     class _FakeAgent:
-        def __init__(self, *, gt_agent, system_prompt, driver_config=None, agent_workdir="") -> None:
+        def __init__(self, *, gt_agent, system_prompt, driver_config=None, agent_workdir="", is_root_leader=False) -> None:
             self.gt_agent = gt_agent
             self.system_prompt = system_prompt
             self.driver_config = driver_config
             self.agent_workdir = agent_workdir
+            self.is_root_leader = is_root_leader
 
         async def startup(self) -> None:
             started.append(self.gt_agent.id)
@@ -118,6 +119,7 @@ async def test_load_team_agents_allows_startup_without_available_llm(monkeypatch
     monkeypatch.setattr(core.gtTeamManager, "get_team_by_id", _get_team_by_id)
     monkeypatch.setattr(core.gtAgentManager, "get_team_all_agents", _get_team_agents)
     monkeypatch.setattr(core.gtRoleTemplateManager, "get_role_templates_by_ids", _get_role_templates_by_ids)
+    monkeypatch.setattr(core.deptService, "get_dept_tree", AsyncMock(return_value=None))
     monkeypatch.setattr(core, "build_agent_system_prompt", _build_agent_system_prompt)
     monkeypatch.setattr(core, "Agent", _FakeAgent)
     monkeypatch.setattr(core, "_agents", {})
@@ -134,3 +136,66 @@ async def test_load_team_agents_allows_startup_without_available_llm(monkeypatch
     assert started == [11]
     assert 11 in core._agents
     assert core._agents[11].agent_workdir == f"{tmp_path}/demo"
+
+
+@pytest.mark.asyncio
+async def test_load_team_agents_injects_admin_tools_only_for_top_manager(monkeypatch, tmp_path):
+    team = SimpleNamespace(id=1, name="demo", config={})
+    alice = SimpleNamespace(id=11, team_id=1, name="alice", role_template_id=21, model="", driver=DriverType.NATIVE)
+    bob = SimpleNamespace(id=12, team_id=1, name="bob", role_template_id=22, model="", driver=DriverType.NATIVE)
+    templates = [
+        SimpleNamespace(id=21, name="alice_tpl", model=None, soul="alice soul", allowed_tools=None, i18n={}),
+        SimpleNamespace(id=22, name="bob_tpl", model=None, soul="bob soul", allowed_tools=None, i18n={}),
+    ]
+    started: list[int] = []
+
+    class _FakeAgent:
+        def __init__(self, *, gt_agent, system_prompt, driver_config=None, agent_workdir="", is_root_leader=False) -> None:
+            self.gt_agent = gt_agent
+            self.system_prompt = system_prompt
+            self.driver_config = driver_config
+            self.agent_workdir = agent_workdir
+            self.is_root_leader = is_root_leader
+
+        async def startup(self) -> None:
+            started.append(self.gt_agent.id)
+
+    async def _get_team_by_id(team_id: int):
+        assert team_id == 1
+        return team
+
+    async def _get_team_agents(team_id: int, status=None):
+        assert team_id == 1
+        return [alice, bob]
+
+    async def _get_role_templates_by_ids(role_template_ids: list[int]):
+        assert role_template_ids == [21, 22]
+        return templates
+
+    async def _build_agent_system_prompt(**kwargs):
+        return "prompt"
+
+    async def _get_dept_tree(team_id: int):
+        assert team_id == 1
+        return SimpleNamespace(manager_id=11)
+
+    monkeypatch.setattr(core.gtTeamManager, "get_team_by_id", _get_team_by_id)
+    monkeypatch.setattr(core.gtAgentManager, "get_team_all_agents", _get_team_agents)
+    monkeypatch.setattr(core.gtRoleTemplateManager, "get_role_templates_by_ids", _get_role_templates_by_ids)
+    monkeypatch.setattr(core.deptService, "get_dept_tree", _get_dept_tree)
+    monkeypatch.setattr(core, "build_agent_system_prompt", _build_agent_system_prompt)
+    monkeypatch.setattr(core, "Agent", _FakeAgent)
+    monkeypatch.setattr(core, "_agents", {})
+    monkeypatch.setattr(
+        core.configUtil,
+        "get_app_config",
+        lambda: AppConfig(
+            setting=SettingConfig(llm_services=[], default_llm_server=None, workspace_root=str(tmp_path)),
+        ),
+    )
+
+    await core.load_team_agents(1, workspace_root=str(tmp_path))
+
+    assert started == [11, 12]
+    assert core._agents[11].is_root_leader is True
+    assert core._agents[12].is_root_leader is False
