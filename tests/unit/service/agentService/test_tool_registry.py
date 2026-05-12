@@ -1,101 +1,154 @@
-from unittest.mock import AsyncMock
-
+from unittest.mock import AsyncMock, MagicMock
 import pytest
-
 from constants import ToolCategory
-from service.agentService.toolRegistry import AgentToolRegistry, build_runtime_allow_specs
+from service.agentService.toolRegistry import (
+    AgentToolRegistry, 
+    validate_tool_allow_specs, 
+    build_runtime_allow_specs
+)
 from service.roomService import ToolCallContext
 from util import llmApiUtil
-
-
-def _make_tool(name: str) -> llmApiUtil.OpenAITool:
-    return llmApiUtil.OpenAITool(
-        function=llmApiUtil.OpenAIFunction(
-            name=name,
-            description="",
-            parameters=llmApiUtil.OpenAIFunctionParameter(type="object", properties={}, required=[]),
-        ),
-    )
-
 
 def _register_tools(registry: AgentToolRegistry, *names: str) -> AsyncMock:
     handler = AsyncMock(return_value={"success": True})
     for name in names:
-        registry.register(_make_tool(name), handler, marks_turn_finish=name == "finish_chat_turn")
+        # 直接构造 OpenAITool
+        tool = llmApiUtil.OpenAITool(
+            function=llmApiUtil.OpenAIFunction(
+                name=name,
+                description="",
+                parameters=llmApiUtil.OpenAIFunctionParameter(type="object", properties={}, required=[])
+            )
+        )
+        registry.register(tool, handler, marks_turn_finish=name == "finish_chat_turn")
     return handler
 
+def test_validate_tool_allow_specs() -> None:
+    # 正常情况 (list_dir 是 READ)
+    assert validate_tool_allow_specs(["Category:Read", "list_dir"]) is None
+    # 包含 ADMIN 类别
+    assert "不允许分配管理员类别权限" in validate_tool_allow_specs(["Category:Admin"])
+    # 包含 ADMIN 工具
+    assert "不允许分配管理员工具权限" in validate_tool_allow_specs(["save_role_template"])
 
-def test_build_runtime_allow_specs_filters_by_category_and_root_leader() -> None:
+def test_build_runtime_allow_specs() -> None:
+    # 默认权限
+    specs = build_runtime_allow_specs(None, is_root_leader=False)
+    assert set(specs) == {"Category:Basic", "Category:Read", "Category:Write", "Category:Execute"}
+    
+    # 指定权限，应自动补齐 Basic
+    # list_dir 是 READ
+    specs = build_runtime_allow_specs(["list_dir"], is_root_leader=False)
+    assert set(specs) == {"list_dir", "Category:Basic"}
+    
+    # Root Leader 自动补齐 Admin 和 Basic
+    specs = build_runtime_allow_specs(None, is_root_leader=True)
+    assert "Category:Admin" in specs
+    assert "Category:Basic" in specs
+
+def test_registry_register_and_list() -> None:
     registry = AgentToolRegistry()
-    _register_tools(
-        registry,
-        "get_time",
-        "send_chat_msg",
-        "finish_chat_turn",
-        "save_role_template",
-        "execute_bash",
-    )
+    # list_dir 是 READ, send_chat_msg 是 BASIC
+    _register_tools(registry, "list_dir", "send_chat_msg")
+    
+    assert set(registry.list_registered_tool_names()) == {"list_dir", "send_chat_msg"}
+    assert set(registry.list_enabled_tool_names()) == {"list_dir", "send_chat_msg"}
+    
+    tool = registry.get_registered_tool("list_dir")
+    assert tool.category == ToolCategory.READ
+    assert tool.marks_turn_finish is False
 
-    normal_specs = build_runtime_allow_specs(
-        ["Category:Read"],
-        is_root_leader=False,
-    )
-    registry.apply_tool_allow_specs(normal_specs)
-    assert registry.list_enabled_tool_names() == ["get_time", "send_chat_msg", "finish_chat_turn"]
-
-    root_specs = build_runtime_allow_specs(
-        ["Category:Read"],
-        is_root_leader=True,
-    )
-    registry.apply_tool_allow_specs(root_specs)
-    assert registry.list_enabled_tool_names() == ["get_time", "send_chat_msg", "finish_chat_turn", "save_role_template"]
-
-
-def test_registered_tool_keeps_category() -> None:
+def test_registry_clear() -> None:
     registry = AgentToolRegistry()
-    _register_tools(registry, "send_chat_msg")
+    _register_tools(registry, "list_dir")
+    registry.clear()
+    assert registry.list_registered_tool_names() == []
 
-    registered = registry.get_registered_tool("send_chat_msg")
-    assert registered is not None
-    assert registered.category == ToolCategory.BASIC
-
-
-def test_build_runtime_allow_specs_with_none_defaults_to_all_except_admin() -> None:
+def test_apply_tool_allow_specs() -> None:
     registry = AgentToolRegistry()
-    _register_tools(
-        registry,
-        "get_time",
-        "send_chat_msg",
-        "finish_chat_turn",
-        "execute_bash",
-        "save_role_template",
-    )
-
-    all_specs = build_runtime_allow_specs(
-        None,
-        is_root_leader=False,
-    )
-    registry.apply_tool_allow_specs(all_specs)
-    # 默认应包含 Read, Write, Execute, Basic，但不包含 Admin (save_role_template)
-    enabled = registry.list_enabled_tool_names()
-    assert "get_time" in enabled
-    assert "send_chat_msg" in enabled
-    assert "finish_chat_turn" in enabled
-    assert "execute_bash" in enabled
-    assert "save_role_template" not in enabled
-
+    _register_tools(registry, "list_dir", "send_chat_msg", "save_role_template")
+    
+    # 仅开启 Basic
+    registry.apply_tool_allow_specs(["Category:Basic"])
+    # send_chat_msg 是 BASIC, list_dir 是 READ
+    assert registry.list_enabled_tool_names() == ["send_chat_msg"]
+    
+    # 仅开启指定工具
+    registry.apply_tool_allow_specs(["list_dir"])
+    assert registry.list_enabled_tool_names() == ["list_dir"]
+    
+    # 开启 Read 和具体工具
+    registry.apply_tool_allow_specs(["Category:Read", "save_role_template"])
+    assert set(registry.list_enabled_tool_names()) == {"list_dir", "save_role_template"}
 
 @pytest.mark.asyncio
-async def test_execute_tool_call_rejects_disabled_tool() -> None:
+async def test_execute_tool_call_success() -> None:
     registry = AgentToolRegistry()
-    handler = _register_tools(registry, "get_time", "send_chat_msg")
-    registry.apply_tool_allow_specs(["send_chat_msg"])
-
-    result = await registry.execute_tool_call(
-        llmApiUtil.OpenAIToolCall(id="tc_1", function={"name": "get_time", "arguments": "{}"}),
-        context=ToolCallContext(agent_id=1, team_id=1, chat_room=object()),
+    
+    # 显式定义的 handler，方便断言参数
+    async def mock_handler(args_str: str, context: ToolCallContext) -> dict:
+        return {"success": True, "files": ["a.txt"], "passed_context": context}
+        
+    tool = llmApiUtil.OpenAITool(
+        function=llmApiUtil.OpenAIFunction(
+            name="list_dir",
+            description="",
+            parameters=llmApiUtil.OpenAIFunctionParameter(type="object", properties={}, required=[])
+        )
     )
+    registry.register(tool, mock_handler)
+    
+    mock_room = MagicMock()
+    ctx = ToolCallContext(agent_id=1, team_id=1, chat_room=mock_room)
+    
+    result = await registry.execute_tool_call(
+        llmApiUtil.OpenAIToolCall(id="tc_1", function={"name": "list_dir", "arguments": "{}"}),
+        context=ctx
+    )
+    
+    assert result.success is True
+    assert result.result["files"] == ["a.txt"]
+    
+    called_ctx = result.result["passed_context"]
+    assert isinstance(called_ctx, ToolCallContext)
+    assert called_ctx.tool_name == "list_dir"
+    assert called_ctx.chat_room == mock_room
 
+@pytest.mark.asyncio
+async def test_execute_tool_call_unknown_tool() -> None:
+    registry = AgentToolRegistry()
+    ctx = ToolCallContext(agent_id=1, team_id=1, chat_room=MagicMock())
+    result = await registry.execute_tool_call(
+        llmApiUtil.OpenAIToolCall(id="tc_1", function={"name": "unknown", "arguments": "{}"}),
+        context=ctx
+    )
     assert result.success is False
-    assert "工具无权限使用" in str(result.result.get("message", ""))
-    handler.assert_not_called()
+    assert "未知工具" in result.error_message
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_disabled_tool() -> None:
+    registry = AgentToolRegistry()
+    _register_tools(registry, "list_dir")
+    registry.apply_tool_allow_specs([]) # 全部禁用
+    
+    ctx = ToolCallContext(agent_id=1, team_id=1, chat_room=MagicMock())
+    result = await registry.execute_tool_call(
+        llmApiUtil.OpenAIToolCall(id="tc_1", function={"name": "list_dir", "arguments": "{}"}),
+        context=ctx
+    )
+    assert result.success is False
+    assert "工具无权限使用" in result.error_message
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_exception() -> None:
+    registry = AgentToolRegistry()
+    handler = _register_tools(registry, "list_dir")
+    handler.side_effect = Exception("boom")
+    
+    ctx = ToolCallContext(agent_id=1, team_id=1, chat_room=MagicMock())
+    result = await registry.execute_tool_call(
+        llmApiUtil.OpenAIToolCall(id="tc_1", function={"name": "list_dir", "arguments": "{}"}),
+        context=ctx
+    )
+    assert result.success is False
+    assert "工具调用失败" in result.result["message"]

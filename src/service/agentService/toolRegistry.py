@@ -12,10 +12,10 @@ ToolHandler = Callable[[str, ToolCallContext], Awaitable[dict[str, Any]]]
 
 CATEGORY_CONFIG: dict[str, ToolCategory] = {
     # Local tools
-    "get_time": ToolCategory.READ,
-    "get_dept_info": ToolCategory.READ,
-    "get_room_info": ToolCategory.READ,
-    "get_agent_info": ToolCategory.READ,
+    "get_time": ToolCategory.BASIC,
+    "get_dept_info": ToolCategory.BASIC,
+    "get_room_info": ToolCategory.BASIC,
+    "get_agent_info": ToolCategory.BASIC,
     "wake_up_agent": ToolCategory.BASIC,
     "send_chat_msg": ToolCategory.BASIC,
     "finish_chat_turn": ToolCategory.BASIC,
@@ -60,6 +60,10 @@ def build_runtime_allow_specs(
         effective_specs = ["Category:Basic", "Category:Read", "Category:Write", "Category:Execute"]
     else:
         effective_specs = list(allowed_tools)
+
+    # 强制包含基础类别
+    if "Category:Basic" not in effective_specs:
+        effective_specs.append("Category:Basic")
 
     if is_root_leader:
         if "Category:Admin" not in effective_specs:
@@ -134,7 +138,7 @@ class AgentToolRegistry:
     ) -> list[str]:
         """根据 allow_specs 解析出实际启用的工具名列表。"""
         ordered_names = list(self._tools_by_name)
-        categories = {ToolCategory.BASIC}
+        categories = set()
         explicit_names: set[str] = set()
 
         for spec in allow_specs:
