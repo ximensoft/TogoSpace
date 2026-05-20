@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Any, Optional
+import asyncio
 import datetime
 import logging
 from zoneinfo import ZoneInfo
@@ -289,11 +290,15 @@ async def reload_team(_context: ToolCallContext = None) -> dict:
     if team is None:
         return {"success": False, "message": f"未找到团队: team_id={team_id}"}
 
-    await teamService.hot_reload_team(team.name)
+    # 在独立 task 里执行 hot_reload，使其不受当前 consumer task 取消的影响。
+    # hot_reload 内部会调用 stop_team_runtime（取消当前 consumer），
+    # 若直接 await，stop_team_runtime 的取消信号会打断自身，导致 restore_team 永远无法执行。
+    asyncio.create_task(teamService.hot_reload_team(team.name))
 
-    # 正常情况下，hot_reload_team 会取消当前 agent 的任务，代码走不到这里。
-    # 若走到这里说明 agent 未被中断，重载未能如预期完成自中断，返回 failure。
+    # 等待被 stop_team_runtime 取消，代码正常情况下不会走到 return。
     # 真正的成功结果由重启后的自中断恢复逻辑（self_interrupt）写入。
+    await asyncio.get_event_loop().create_future()
+
     return {"success": False, "message": f"团队 {team.name} 重载已触发，等待 agent 重启后确认。"}
 
 async def list_role_templates(keywords: list[str] | None = None, _context: ToolCallContext = None) -> dict:
