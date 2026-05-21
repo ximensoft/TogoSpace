@@ -480,6 +480,122 @@ async def save_agent(
     }
 
 
+def _collect_descendant_ids(node: GtDept) -> set[int]:
+    """递归收集节点的所有后代 dept id（不含自身）。"""
+    ids: set[int] = set()
+    for child in node.children:
+        if child.id is not None:
+            ids.add(child.id)
+        ids |= _collect_descendant_ids(child)
+    return ids
+
+
+async def save_dept(
+    name: str,
+    responsibility: str,
+    manager_name: str,
+    member_names: list[str],
+    parent_name: str | None = None,
+    i18n: dict | None = None,
+    overwrite_existing: bool = False,
+    _context: ToolCallContext = None,
+) -> dict:
+    """在当前团队中创建或更新组织（部门）。全量覆盖模式：每次调用会完整替换成员列表。
+
+    Args:
+        name: 组织名称。作为当前团队内的稳定标识符，建议使用英文小写字母和下划线。
+        responsibility: 组织职责描述。
+        manager_name: 负责人成员名。负责人若不在 member_names 中，将自动加入。
+        member_names: 成员名称列表。全量覆盖，每次调用将完整替换现有成员列表。
+        parent_name: 父组织名称。省略或传 null 表示设为根组织（无父组织）。不能设置为自身或自身的子组织。
+        i18n: 可选多语言数据。示例：{"dept_name": {"zh-CN": "研发部", "en": "R&D"}, "responsibility": {"zh-CN": "..."}}
+        overwrite_existing: 是否允许覆盖已存在的同名组织。默认 false；为 true 时执行更新。
+    """
+    ok, team_id = _require_team_context(_context)
+    if not ok:
+        return {"success": False, "message": "当前没有可用的团队上下文。"}
+
+    normalized_name = name.strip()
+    if not normalized_name:
+        return {"success": False, "message": "组织名称不能为空。"}
+
+    # 解析 manager
+    normalized_manager = manager_name.strip()
+    if not normalized_manager:
+        return {"success": False, "message": "负责人名称不能为空。"}
+
+    from dal.db import gtDeptManager
+    from service import deptService
+
+    all_agents = await gtAgentManager.get_team_all_agents(team_id)
+    name_to_agent: dict[str, Any] = {a.name: a for a in all_agents}
+
+    manager_agent = name_to_agent.get(normalized_manager)
+    if manager_agent is None:
+        return {"success": False, "message": f"未找到成员: {normalized_manager}"}
+
+    # 解析 member_names → agent_ids，遇到找不到的立即报错
+    resolved_ids: list[int] = []
+    for mname in member_names:
+        mname = mname.strip()
+        agent = name_to_agent.get(mname)
+        if agent is None:
+            return {"success": False, "message": f"未找到成员: {mname}"}
+        resolved_ids.append(agent.id)
+
+    # 负责人自动加入成员列表
+    if manager_agent.id not in resolved_ids:
+        resolved_ids.insert(0, manager_agent.id)
+
+    # 检查是否已存在同名组织
+    existing = await gtDeptManager.get_dept_by_name(team_id, normalized_name)
+    if existing is not None and not overwrite_existing:
+        return {
+            "success": False,
+            "message": f"组织 {normalized_name} 已存在；如需覆盖请将 overwrite_existing 设为 true。",
+        }
+
+    # 解析 parent_name → parent_id，并校验循环引用
+    parent_id: int | None = None
+    if parent_name is not None:
+        normalized_parent = parent_name.strip()
+        if normalized_parent:
+            parent_dept = await gtDeptManager.get_dept_by_name(team_id, normalized_parent)
+            if parent_dept is None:
+                return {"success": False, "message": f"未找到父组织: {normalized_parent}"}
+            if existing is not None:
+                # 不能把自身设为父组织
+                if parent_dept.id == existing.id:
+                    return {"success": False, "message": "父组织不能设置为当前组织自身。"}
+                # 不能把子孙组织设为父组织（会产生环）
+                dept_tree = await deptService.get_dept_tree(team_id)
+                current_node = _find_dept_node(dept_tree, existing.id)
+                if current_node is not None:
+                    descendant_ids = _collect_descendant_ids(current_node)
+                    if parent_dept.id in descendant_ids:
+                        return {"success": False, "message": f"父组织 {normalized_parent} 是当前组织的子组织，不能形成循环引用。"}
+            parent_id = parent_dept.id
+
+    saved = await gtDeptManager.save_dept(
+        team_id=team_id,
+        name=normalized_name,
+        responsibility=responsibility,
+        parent_id=parent_id,
+        manager_id=manager_agent.id,
+        agent_ids=resolved_ids,
+        dept_id=existing.id if existing is not None else None,
+        i18n=i18n,
+    )
+
+    id_to_name = {a.id: a.name for a in all_agents}
+    action = "更新" if existing is not None else "创建"
+    return {
+        "success": True,
+        "message": f"已{action}组织 {normalized_name}。配置已保存，需要 reload_team 后生效。",
+        "dept": _serialize_dept_node(saved, id_to_name),
+    }
+
+
 async def delete_role_template(role_name: str, _context: ToolCallContext = None) -> dict:
     """删除指定的角色模板。注意：仅能删除由用户创建（USER 类型）且当前未被任何成员使用的模板。
 
