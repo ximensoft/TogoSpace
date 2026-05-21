@@ -1,6 +1,8 @@
 """integration tests for role template management tools"""
+import asyncio
 import os
 import sys
+import pytest
 from unittest.mock import AsyncMock
 from typing import Optional
 
@@ -199,16 +201,28 @@ class TestRoleTemplateTools(ServiceTestCase):
         assert detail_result["role_template"]["type"] == "USER"
 
     async def test_reload_team_uses_current_team_context(self, monkeypatch) -> None:
-        """reload_team 应基于当前 team 上下文触发 team 级热重载。"""
+        """reload_team 应基于当前 team 上下文触发 team 级热重载。
+        reload_team 是自中断工具：会创建内部 task 后永久挂起，等待被 stop_team_runtime 取消。
+        测试在 task 中运行它，让内部 hot_reload_team task 有机会执行后手动取消。
+        """
         hot_reload_team = AsyncMock()
         monkeypatch.setattr("service.teamService.hot_reload_team", hot_reload_team)
 
         ctx = ToolCallContext(agent_id=1, team_id=self.team_id, chat_room=None)
-        result = await reload_team(_context=ctx)
+        task = asyncio.ensure_future(reload_team(_context=ctx))
+        # hot_reload 通过 create_task 调度，调度前需等待 DB 查询（aiosqlite 线程池）完成。
+        # 轮询直到 hot_reload_team 被同步调用（create_task 内部），最多等待 2 秒。
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + 2.0
+        while hot_reload_team.call_count == 0:
+            if loop.time() > deadline:
+                pytest.fail("reload_team 未在 2 秒内调用 hot_reload_team")
+            await asyncio.sleep(0.005)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
-        assert result["success"] is True
-        assert result["team_name"] == TEAM
-        hot_reload_team.assert_awaited_once_with(TEAM)
+        hot_reload_team.assert_called_once_with(TEAM)
 
     async def test_list_role_templates_with_search(self) -> None:
         """list_role_templates 应支持关键词搜索 (OR 逻辑，支持 i18n)。"""
