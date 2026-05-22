@@ -241,6 +241,8 @@ async def start_chat(
     existing_rooms = await gtRoomManager.get_rooms_by_team(team_id)
     for existing_room in existing_rooms:
         if set(existing_room.agent_ids or []) == member_set:
+            if roomService.get_room(existing_room.id) is None:
+                await roomService.load_and_activate_room(existing_room.id)
             return {
                 "success": True,
                 "message": f"已存在与 {normalized} 的单聊房间 {existing_room.name}，无需重复创建。",
@@ -262,10 +264,11 @@ async def start_chat(
         agent_ids=member_ids,
         initial_topic=initial_topic,
     )
+    await roomService.load_and_activate_room(saved.id)
 
     return {
         "success": True,
-        "message": f"已创建与 {normalized} 的单聊房间 {saved.name}。配置已保存，需要 reload_team 后生效。",
+        "message": f"已创建与 {normalized} 的单聊房间 {saved.name}。",
         "room": {
             "room_id": saved.id,
             "name": saved.name,
@@ -1100,5 +1103,4 @@ async def list_tasks(
         status=status,
         limit=limit,
     )
-
 

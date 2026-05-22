@@ -26,6 +26,7 @@ from service.funcToolService.tools import (
     get_dept_info,
     get_room_info,
     get_agent_info,
+    start_chat,
     wake_up_agent,
     send_chat_msg,
     finish_chat_turn,
@@ -323,6 +324,40 @@ class TestToolFunctions(ServiceTestCase):
         assert (await send_chat_msg("myroom", "hello", _context=ctx))["success"]
         assert len(room.messages) == 2  # 1 (init公告) + 1 (new)
         assert room.messages[1].content == "hello"
+
+    async def test_start_chat_creates_room_and_loads_it_immediately(self):
+        """start_chat 新建私聊后，应立即加载运行时房间并允许立刻发消息。"""
+        await self.create_room(TEAM, "lobby", ["alice"])
+        source_room = roomService.get_room_by_key(f"lobby@{TEAM}")
+        await source_room.activate_scheduling()
+        ctx = ToolCallContext(agent_id=self.agent_ids["alice"], team_id=source_room.team_id, chat_room=source_room)
+
+        target_name = "dora_start_chat"
+        target = await gtAgentManager.get_agent(self.team_id, target_name)
+        if target is None:
+            await gtAgentManager.batch_save_agents(
+                self.team_id,
+                [GtAgent(team_id=self.team_id, name=target_name, role_template_id=0)],
+            )
+            target = await gtAgentManager.get_agent(self.team_id, target_name)
+        assert target is not None
+
+        create_result = await start_chat(target_name, initial_topic="sync task", _context=ctx)
+
+        assert create_result["success"]
+        assert create_result["is_new_created"] is True
+        assert "reload_team" not in create_result["message"]
+
+        room_id = create_result["room"]["room_id"]
+        room_name = create_result["room"]["name"]
+        runtime_room = roomService.get_room(room_id)
+        assert runtime_room is not None
+        assert runtime_room.state.name == "SCHEDULING"
+
+        send_result = await send_chat_msg(room_name, "hello bob", _context=ctx)
+
+        assert send_result["success"]
+        assert any(message.content == "hello bob" for message in runtime_room.messages)
 
     async def test_send_chat_msg_nonexistent_room_returns_error(self):
         """目标房间不存在时应返回明确错误，避免吞掉失败。"""
