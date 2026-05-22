@@ -1,4 +1,4 @@
-"""集成测试：get_or_create_control_room 与 get_private_room_by_agent。"""
+"""集成测试：get_or_create_control_room 与 get_operator_control_room。"""
 import os
 import sys
 from unittest.mock import patch
@@ -8,6 +8,7 @@ import pytest
 from constants import RoomState, RoomType, MessageBusTopic, SpecialAgent
 from dal.db import gtAgentManager, gtRoomManager, gtTeamManager
 from model.dbModel.gtAgent import GtAgent
+from model.dbModel.gtRoom import GtRoom
 from model.dbModel.gtTeam import GtTeam
 from service import agentService, ormService, persistenceService, roomService
 from tests.base import ServiceTestCase
@@ -62,7 +63,7 @@ class TestGetOrCreateControlRoom(ServiceTestCase):
         assert room.state != RoomState.INIT
 
         # 数据库中应存在对应的 PRIVATE 房间
-        gt_room = await gtRoomManager.get_private_room_by_agent(self.team_id, alice_id)
+        gt_room = await gtRoomManager.get_operator_control_room(self.team_id, alice_id)
         assert gt_room is not None
         assert gt_room.type == RoomType.PRIVATE
         assert alice_id in gt_room.agent_ids
@@ -102,16 +103,16 @@ class TestGetOrCreateControlRoom(ServiceTestCase):
         room_added_events = [e for e in published_events if e[0] == MessageBusTopic.ROOM_ADDED]
         assert len(room_added_events) == 0
 
-    async def test_get_private_room_by_agent_returns_none_for_missing(self):
+    async def test_get_operator_control_room_returns_none_for_missing(self):
         """不存在该 agent 的 PRIVATE 房间时，应返回 None。"""
         # 使用一个不存在的 agent_id
-        gt_room = await gtRoomManager.get_private_room_by_agent(self.team_id, agent_id=999999)
+        gt_room = await gtRoomManager.get_operator_control_room(self.team_id, agent_id=999999)
         assert gt_room is None
 
     async def test_control_room_includes_operator(self):
         """自动创建的控制房间 agent_ids 应包含 OPERATOR。"""
         alice_id = await self._get_agent_id("alice")
-        gt_room = await gtRoomManager.get_private_room_by_agent(self.team_id, alice_id)
+        gt_room = await gtRoomManager.get_operator_control_room(self.team_id, alice_id)
         assert gt_room is not None
         assert int(SpecialAgent.OPERATOR.value) in gt_room.agent_ids
         assert alice_id in gt_room.agent_ids
@@ -119,7 +120,7 @@ class TestGetOrCreateControlRoom(ServiceTestCase):
     async def test_control_room_has_exactly_two_members(self):
         """自动创建的控制房间应恰好包含 2 个成员：OPERATOR + agent。"""
         alice_id = await self._get_agent_id("alice")
-        gt_room = await gtRoomManager.get_private_room_by_agent(self.team_id, alice_id)
+        gt_room = await gtRoomManager.get_operator_control_room(self.team_id, alice_id)
         assert gt_room is not None
         assert len(gt_room.agent_ids) == 2, (
             f"期望恰好 2 名成员，实际 {len(gt_room.agent_ids)}: {gt_room.agent_ids}"
@@ -128,7 +129,7 @@ class TestGetOrCreateControlRoom(ServiceTestCase):
     async def test_room_name_equals_agent_name(self):
         """自动创建的控制房间名称应等于 agent 名称。"""
         alice_id = await self._get_agent_id("alice")
-        gt_room = await gtRoomManager.get_private_room_by_agent(self.team_id, alice_id)
+        gt_room = await gtRoomManager.get_operator_control_room(self.team_id, alice_id)
         assert gt_room is not None
         assert gt_room.name == "alice"
 
@@ -182,3 +183,46 @@ class TestGetOrCreateControlRoom(ServiceTestCase):
         assert last_status["current_turn_agent_id"] == bob_id, (
             f"期望 bob({bob_id})，实际 {last_status['current_turn_agent_id']}"
         )
+
+    # ------------------------------------------------------------------
+    # 回归：start_chat 创建的 agent-agent 私聊房间不应被误认为控制房间
+    # ------------------------------------------------------------------
+
+    async def test_operator_control_room_not_confused_with_agent_agent_private_room(self):
+        """回归测试：存在 agent-agent PRIVATE 房间时，get_or_create_control_room
+        应忽略该房间，仍正确找到/创建含 OPERATOR 的控制房间。
+
+        复现场景：start_chat 工具为 alice 和 bob 创建了 PRIVATE 房间；
+        随后前端通过 supervise 接口向 alice 发消息，旧代码错误地返回
+        agent-agent 房间，导致 OPERATOR(-1) 不在成员列表而报错。
+        """
+        alice_id = await self._get_agent_id("alice")
+        bob_id = await self._get_agent_id("bob")
+
+        # 1. 模拟 start_chat：手动在 DB 中创建一个 alice-bob 的 PRIVATE 房间（不含 OPERATOR）
+        agent_agent_room = await gtRoomManager.save_room(GtRoom(
+            team_id=self.team_id,
+            name="alice_bob",
+            type=RoomType.PRIVATE,
+            initial_topic="",
+            max_rounds=-1,
+            agent_ids=[alice_id, bob_id],
+        ))
+
+        # 2. get_operator_control_room 不应返回该房间
+        found = await gtRoomManager.get_operator_control_room(self.team_id, alice_id)
+        assert found is None or int(SpecialAgent.OPERATOR.value) in (found.agent_ids or []), (
+            "get_operator_control_room 不应返回不含 OPERATOR 的 agent-agent 私聊房间"
+        )
+
+        # 3. get_or_create_control_room 应正常创建/返回含 OPERATOR 的控制房间
+        room, _ = await roomService.get_or_create_control_room(self.team_id, alice_id)
+        assert int(SpecialAgent.OPERATOR.value) in room._agent_ids, (
+            "控制房间必须包含 OPERATOR"
+        )
+        assert agent_agent_room.id != room.room_id, (
+            "控制房间不应与 agent-agent 私聊房间相同"
+        )
+
+        # 清理：删除手动创建的 agent-agent 房间，避免干扰其他用例
+        await gtRoomManager.delete_room(agent_agent_room.id)

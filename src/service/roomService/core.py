@@ -165,7 +165,7 @@ async def get_or_create_control_room(team_id: int, agent_id: int) -> tuple[ChatR
     assert gt_team is not None, f"team_id={team_id} not found"
 
     # 查找现有 PRIVATE 房间
-    gt_room = await gtRoomManager.get_private_room_by_agent(team_id, agent_id)
+    gt_room = await gtRoomManager.get_operator_control_room(team_id, agent_id)
     if gt_room is not None:
         room = _rooms_by_id.get(gt_room.id)
         if room is None:
@@ -369,6 +369,20 @@ def get_rooms_for_agent(team_id: int | None, agent_id: int) -> List[int]:
             if team_id is None or room.team_id == team_id:
                 results.append(room.room_id)
     return results
+
+
+async def load_and_activate_room(room_id: int) -> None:
+    """将指定房间加载到内存并激活调度（用于刚创建的新房间立即生效）。"""
+    gt_room = await gtRoomManager.get_room_by_id(room_id)
+    if gt_room is None:
+        raise RuntimeError(f"room_id={room_id} 不存在，无法加载")
+    gt_team = await gtTeamManager.get_team_by_id(gt_room.team_id)
+    if gt_team is None:
+        raise RuntimeError(f"team_id={gt_room.team_id} 不存在，无法加载房间")
+    await _load_room(gt_team=gt_team, gt_room=gt_room)
+    room = _rooms_by_id[room_id]
+    if room._agent_ids:
+        await room.activate_scheduling()
 
 
 async def upsert_room(
