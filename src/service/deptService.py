@@ -211,6 +211,53 @@ async def get_agent_dept(team_id: int, agent_id: int) -> GtDept | None:
     return None
 
 
+async def delete_dept(team_id: int, dept_id: int, recursive: bool = False) -> None:
+    """删除指定部门。
+
+    - 不能删除根部门。
+    - recursive=False 时若有子部门则报错；recursive=True 时递归删除所有子孙部门。
+    - 删除后同步部门房间。
+    """
+    all_depts = await gtDeptManager.get_all_depts(team_id)
+    dept_map: dict[int, GtDept] = {d.id: d for d in all_depts if d.id is not None}
+
+    target = dept_map.get(dept_id)
+    if target is None:
+        raise TogoException(f"部门 ID '{dept_id}' 不存在", error_code="DEPT_NOT_FOUND")
+
+    # 不能删除根部门
+    if target.parent_id is None:
+        raise TogoException("不能删除根部门", error_code="DEPT_DELETE_ROOT_FORBIDDEN")
+
+    # 收集所有子孙部门 ID
+    def _collect_subtree_ids(pid: int) -> list[int]:
+        ids: list[int] = [pid]
+        for d in all_depts:
+            if d.id is not None and d.parent_id == pid:
+                ids.extend(_collect_subtree_ids(d.id))
+        return ids
+
+    children = [d for d in all_depts if d.parent_id == dept_id]
+    if children and not recursive:
+        raise TogoException(
+            f"部门 '{target.name}' 下还有子部门，请先删除子部门或使用 recursive=true 递归删除",
+            error_code="DEPT_HAS_CHILDREN",
+        )
+
+    ids_to_delete = _collect_subtree_ids(dept_id)
+    await gtDeptManager.delete_depts_by_ids(ids_to_delete)
+
+    # 同步部门房间
+    tree = await get_dept_tree(team_id)
+    if tree is not None:
+        await roomService.overwrite_dept_rooms(team_id, tree.collect_room_specs())
+    else:
+        # 树已为空，清除所有 DEPT 房间
+        await roomService.overwrite_dept_rooms(team_id, [])
+
+    logger.info(f"部门已删除（team_id={team_id}，dept_id={dept_id}，recursive={recursive}，共删除 {len(ids_to_delete)} 个）")
+
+
 async def set_dept_manager(team_id: int, dept_name: str, manager_id: int) -> None:
     """变更部门主管，新主管必须已在该部门中。"""
     dept = await gtDeptManager.get_dept_by_name(team_id, dept_name)

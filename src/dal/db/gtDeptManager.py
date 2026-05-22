@@ -90,6 +90,18 @@ async def save_dept(
     return row
 
 
+async def delete_dept_by_id(dept_id: int) -> None:
+    """删除指定部门（不含子部门）。"""
+    await GtDept.delete().where(GtDept.id == dept_id).aio_execute()
+
+
+async def delete_depts_by_ids(dept_ids: list[int]) -> None:
+    """批量删除指定部门。"""
+    if not dept_ids:
+        return
+    await GtDept.delete().where(GtDept.id.in_(dept_ids)).aio_execute()  # type: ignore[attr-defined]
+
+
 async def delete_all_depts(team_id: int) -> None:
     """删除 team 下所有部门。"""
     await GtDept.delete().where(GtDept.team_id == team_id).aio_execute()

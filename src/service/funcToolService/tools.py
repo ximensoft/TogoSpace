@@ -618,6 +618,49 @@ async def save_dept(
     }
 
 
+async def delete_dept(
+    name: str,
+    dept_id: int | None = None,
+    recursive: bool = False,
+    _context: ToolCallContext = None,
+) -> dict:
+    """删除当前团队中的指定组织（部门）。
+
+    Args:
+        name: 要删除的组织名称。
+        dept_id: 可选组织 ID。传入后按 ID 精确定位组织，此时 name 仅用于确认提示。
+        recursive: 是否递归删除子组织。默认 false；为 true 时会一并删除所有子孙组织。
+    """
+    ok, team_id = _require_team_context(_context)
+    if not ok:
+        return {"success": False, "message": "当前没有可用的团队上下文。"}
+
+    from dal.db import gtDeptManager
+    from service import deptService
+
+    if dept_id is not None:
+        target = await gtDeptManager.get_dept_by_id(dept_id)
+        if target is None or target.team_id != team_id:
+            return {"success": False, "message": f"未找到 ID 为 {dept_id} 的组织。"}
+    else:
+        normalized_name = name.strip()
+        if not normalized_name:
+            return {"success": False, "message": "组织名称不能为空。"}
+        target = await gtDeptManager.get_dept_by_name(team_id, normalized_name)
+        if target is None:
+            return {"success": False, "message": f"未找到组织: {normalized_name}"}
+
+    try:
+        await deptService.delete_dept(team_id, target.id, recursive=recursive)
+    except Exception as exc:
+        return {"success": False, "message": str(exc)}
+
+    return {
+        "success": True,
+        "message": f"已删除组织 {target.name}{'（含子组织）' if recursive else ''}。配置已保存，需要 reload_team 后生效。",
+    }
+
+
 async def delete_role_template(role_name: str, _context: ToolCallContext = None) -> dict:
     """删除指定的角色模板。注意：仅能删除由用户创建（USER 类型）且当前未被任何成员使用的模板。
 

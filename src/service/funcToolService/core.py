@@ -8,6 +8,7 @@ from util import llmApiUtil
 from service.roomService import ToolCallContext
 from .funcToolType import FuncTool
 from .tools import (
+    delete_dept,
     delete_role_template,
     finish_chat_turn,
     get_agent_info,
@@ -50,6 +51,7 @@ def load_func_tools() -> dict[str, FuncTool]:
         "get_role_template": get_role_template,
         "save_agent": save_agent,
         "save_dept": save_dept,
+        "delete_dept": delete_dept,
         "save_role_template": save_role_template,
         "delete_role_template": delete_role_template,
     }

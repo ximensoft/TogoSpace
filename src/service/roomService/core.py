@@ -376,4 +376,7 @@ async def activate_rooms(team_name: str | None = None) -> None:
     for room in _rooms.values():
         if team_name is not None and room.team_name != team_name:
             continue
+        if not room._agent_ids:
+            logger.warning(f"跳过激活：房间 {room.key} 没有任何参与者，数据异常")
+            continue
         await room.activate_scheduling()
