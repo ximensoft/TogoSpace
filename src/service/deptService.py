@@ -306,3 +306,30 @@ async def set_dept_manager(team_id: int, dept_name: str, manager_id: int) -> Non
         dept_id=dept.id,
         i18n=dept.i18n,
     )
+
+
+async def get_sub_agent_ids(team_id: int, agent_id: int) -> set[int]:
+    """返回 agent_id 在其所在部门的所有直接/间接下属 Agent ID 集合（不含自身）。
+
+    仅当 agent_id 是该部门 manager 时才有下属；否则返回空集合。
+    """
+    tree: GtDept | None = await get_dept_tree(team_id)
+    if tree is None:
+        return set()
+
+    def _find_agent_dept(node: GtDept) -> GtDept | None:
+        if agent_id in (node.agent_ids or []):
+            return node
+        for child in node.children or []:
+            found = _find_agent_dept(child)
+            if found is not None:
+                return found
+        return None
+
+    dept = _find_agent_dept(tree)
+    if dept is None or dept.manager_id != agent_id:
+        return set()
+
+    all_ids, _ = dept.collect_dept_and_agent_ids()
+    all_ids.discard(agent_id)
+    return all_ids

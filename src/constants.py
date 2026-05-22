@@ -171,6 +171,24 @@ class AgentActivityStatus(EnhanceEnum):
     CANCELLED = auto()
 
 
+class TaskStatus(EnhanceEnum):
+    """协作任务状态枚举。"""
+    TODO        = "TODO"
+    PENDING     = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    ON_HOLD     = "ON_HOLD"
+    REVIEWING   = "REVIEWING"
+    DONE        = "DONE"
+    CANCELLED   = "CANCELLED"
+
+
+class TaskPriority(EnhanceEnum):
+    """协作任务优先级枚举。"""
+    HIGH   = "HIGH"
+    NORMAL = "NORMAL"
+    LOW    = "LOW"
+
+
 class AgentTaskType(EnhanceEnum):
     """Agent 任务类型枚举。"""
     ROOM_MESSAGE = auto()

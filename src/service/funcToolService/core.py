@@ -8,6 +8,7 @@ from util import llmApiUtil
 from service.roomService import ToolCallContext
 from .funcToolType import FuncTool
 from .tools import (
+    create_task,
     delete_dept,
     delete_role_template,
     delete_room,
@@ -16,8 +17,10 @@ from .tools import (
     get_dept_info,
     get_role_template,
     get_room_info,
+    get_task,
     get_time,
     list_role_templates,
+    list_tasks,
     reload_team,
     save_agent,
     save_dept,
@@ -25,6 +28,7 @@ from .tools import (
     save_role_template,
     save_room,
     send_chat_msg,
+    update_task,
     wake_up_agent,
 )
 
@@ -60,6 +64,10 @@ def load_func_tools() -> dict[str, FuncTool]:
         "delete_room": delete_room,
         "save_role_template": save_role_template,
         "delete_role_template": delete_role_template,
+        "create_task": create_task,
+        "update_task": update_task,
+        "get_task": get_task,
+        "list_tasks": list_tasks,
     }
     _func_tools = {}
     for name, func in _registry.items():
