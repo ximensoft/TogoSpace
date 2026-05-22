@@ -21,6 +21,8 @@ from .core import (
     overwrite_dept_rooms,
     activate_rooms,
     get_or_create_control_room,
+    upsert_room,
+    delete_managed_room,
     _rooms,
 )
 from constants import RoomType
@@ -49,5 +51,7 @@ __all__ = [
     "overwrite_dept_rooms",
     "activate_rooms",
     "get_or_create_control_room",
+    "upsert_room",
+    "delete_managed_room",
     "_rooms",
 ]

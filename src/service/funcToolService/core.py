@@ -10,6 +10,7 @@ from .funcToolType import FuncTool
 from .tools import (
     delete_dept,
     delete_role_template,
+    delete_room,
     finish_chat_turn,
     get_agent_info,
     get_dept_info,
@@ -21,6 +22,7 @@ from .tools import (
     save_agent,
     save_dept,
     save_role_template,
+    save_room,
     send_chat_msg,
     wake_up_agent,
 )
@@ -52,6 +54,8 @@ def load_func_tools() -> dict[str, FuncTool]:
         "save_agent": save_agent,
         "save_dept": save_dept,
         "delete_dept": delete_dept,
+        "save_room": save_room,
+        "delete_room": delete_room,
         "save_role_template": save_role_template,
         "delete_role_template": delete_role_template,
     }

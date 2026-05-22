@@ -25,6 +25,8 @@ CATEGORY_CONFIG: dict[str, ToolCategory] = {
     "save_agent": ToolCategory.ADMIN,
     "save_dept": ToolCategory.ADMIN,
     "delete_dept": ToolCategory.ADMIN,
+    "save_room": ToolCategory.ADMIN,
+    "delete_room": ToolCategory.ADMIN,
     "save_role_template": ToolCategory.ADMIN,
     "delete_role_template": ToolCategory.ADMIN,
     # TSP tools

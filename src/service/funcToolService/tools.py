@@ -618,6 +618,127 @@ async def save_dept(
     }
 
 
+async def save_room(
+    name: str,
+    member_names: list[str],
+    initial_topic: str = "",
+    max_rounds: int | None = None,
+    overwrite_existing: bool = False,
+    room_id: int | None = None,
+    _context: ToolCallContext = None,
+) -> dict:
+    """在当前团队中创建或更新房间。房间类型按成员数量自动判断：2人为单聊，3人及以上为群聊。
+
+    Args:
+        name: 房间名称。团队内唯一标识，建议使用英文小写字母和下划线。
+        member_names: 成员名称列表，至少 2 人。全量覆盖，每次调用将完整替换现有成员列表。
+        initial_topic: 房间初始话题，可选。
+        max_rounds: 最大轮次。不传则使用系统默认值；<=0 表示不限轮次。
+        overwrite_existing: 同名房间已存在时是否允许覆盖。默认 false；为 true 时执行更新。当传入 room_id 时此参数不生效。
+        room_id: 可选房间 ID。传入后按 ID 精确定位房间（忽略 overwrite_existing），此时 name 可用于重命名。
+    """
+    ok, team_id = _require_team_context(_context)
+    if not ok:
+        return {"success": False, "message": "当前没有可用的团队上下文。"}
+
+    normalized_name = name.strip()
+    if not normalized_name:
+        return {"success": False, "message": "房间名称不能为空。"}
+
+    if len(member_names) < 2:
+        return {"success": False, "message": f"房间成员不足 2 人（当前 {len(member_names)} 人）。"}
+
+    all_agents = await gtAgentManager.get_team_all_agents(team_id)
+    name_to_agent: dict[str, Any] = {a.name: a for a in all_agents}
+
+    resolved_ids: list[int] = []
+    for mname in member_names:
+        mname = mname.strip()
+        agent = name_to_agent.get(mname)
+        if agent is None:
+            return {"success": False, "message": f"未找到成员: {mname}"}
+        resolved_ids.append(agent.id)
+
+    # 按 ID 或名称定位已有房间
+    if room_id is not None:
+        existing = await gtRoomManager.get_room_by_id(room_id)
+        if existing is None or existing.team_id != team_id:
+            return {"success": False, "message": f"未找到 ID 为 {room_id} 的房间。"}
+    else:
+        existing = await gtRoomManager.get_room_by_team_and_name(team_id, normalized_name)
+        if existing is not None and not overwrite_existing:
+            return {
+                "success": False,
+                "message": f"房间 {normalized_name} 已存在；如需覆盖请将 overwrite_existing 设为 true。",
+            }
+
+    try:
+        saved = await roomService.upsert_room(
+            team_id=team_id,
+            name=normalized_name,
+            agent_ids=resolved_ids,
+            initial_topic=initial_topic,
+            max_rounds=max_rounds,
+            room_id=existing.id if existing is not None else None,
+        )
+    except Exception as exc:
+        return {"success": False, "message": str(exc)}
+
+    id_to_name = {a.id: a.name for a in all_agents}
+    action = "更新" if existing is not None else "创建"
+    room_type_label = "单聊" if len(resolved_ids) == 2 else "群聊"
+    return {
+        "success": True,
+        "message": f"已{action}{room_type_label}房间 {saved.name}。配置已保存，需要 reload_team 后生效。",
+        "room": {
+            "room_id": saved.id,
+            "name": saved.name,
+            "type": room_type_label,
+            "members": [id_to_name.get(aid, str(aid)) for aid in (saved.agent_ids or [])],
+            "max_rounds": saved.max_rounds,
+            "initial_topic": saved.initial_topic,
+        },
+    }
+
+
+async def delete_room(
+    name: str,
+    room_id: int | None = None,
+    _context: ToolCallContext = None,
+) -> dict:
+    """删除当前团队中的指定房间。DEPT 房间不允许删除；运行中的房间不允许删除。
+
+    Args:
+        name: 要删除的房间名称。
+        room_id: 可选房间 ID。传入后按 ID 精确定位，此时 name 仅用于确认提示。
+    """
+    ok, team_id = _require_team_context(_context)
+    if not ok:
+        return {"success": False, "message": "当前没有可用的团队上下文。"}
+
+    if room_id is not None:
+        target = await gtRoomManager.get_room_by_id(room_id)
+        if target is None or target.team_id != team_id:
+            return {"success": False, "message": f"未找到 ID 为 {room_id} 的房间。"}
+    else:
+        normalized_name = name.strip()
+        if not normalized_name:
+            return {"success": False, "message": "房间名称不能为空。"}
+        target = await gtRoomManager.get_room_by_team_and_name(team_id, normalized_name)
+        if target is None:
+            return {"success": False, "message": f"未找到房间: {normalized_name}"}
+
+    try:
+        await roomService.delete_managed_room(team_id, target.id)
+    except Exception as exc:
+        return {"success": False, "message": str(exc)}
+
+    return {
+        "success": True,
+        "message": f"已删除房间 {target.name}。配置已保存，需要 reload_team 后生效。",
+    }
+
+
 async def delete_dept(
     name: str,
     dept_id: int | None = None,

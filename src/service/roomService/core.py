@@ -371,6 +371,79 @@ def get_rooms_for_agent(team_id: int | None, agent_id: int) -> List[int]:
     return results
 
 
+async def upsert_room(
+    team_id: int,
+    name: str,
+    agent_ids: list[int],
+    initial_topic: str = "",
+    max_rounds: int | None = None,
+    room_id: int | None = None,
+) -> GtRoom:
+    """创建或更新房间（按成员数自动判断类型：2人=PRIVATE，≥3人=GROUP）。
+
+    - room_id 传入时按 ID 更新（支持重命名）；否则按 name 新建。
+    - 不操作 DEPT 房间（有 'DEPT' tag 的房间由部门树管理）。
+    """
+    room_type = RoomType.PRIVATE if len(agent_ids) == 2 else RoomType.GROUP
+    resolved_max_rounds = resolve_room_max_rounds(max_rounds)
+
+    # 不允许创建与已有房间成员集合完全相同的房间（排除当前正在更新的房间本身）
+    member_set = set(agent_ids)
+    existing_rooms = await gtRoomManager.get_rooms_by_team(team_id)
+    for existing_room in existing_rooms:
+        if room_id is not None and existing_room.id == room_id:
+            continue
+        if set(existing_room.agent_ids or []) == member_set:
+            raise TogoException(
+                f"已存在成员相同的房间 '{existing_room.name}'，不能创建重复房间",
+                error_code="ROOM_DUPLICATE",
+            )
+
+    if room_id is not None:
+        existing = await gtRoomManager.get_room_by_id(room_id)
+        if existing is None or existing.team_id != team_id:
+            raise TogoException(f"room_id '{room_id}' 不存在", error_code="ROOM_NOT_FOUND")
+        if "DEPT" in (existing.tags or []):
+            raise TogoException("DEPT 房间不允许直接修改，请通过部门树管理", error_code="ROOM_DEPT_PROTECTED")
+        existing.name = name
+        existing.type = room_type
+        existing.initial_topic = initial_topic
+        existing.max_rounds = resolved_max_rounds
+        existing.agent_ids = agent_ids
+        return await gtRoomManager.save_room(existing)
+
+    new_room = GtRoom(
+        team_id=team_id,
+        name=name,
+        type=room_type,
+        initial_topic=initial_topic,
+        max_rounds=resolved_max_rounds,
+        agent_ids=agent_ids,
+        biz_id=None,
+        tags=[],
+    )
+    return await gtRoomManager.save_room(new_room)
+
+
+async def delete_managed_room(team_id: int, room_id: int) -> None:
+    """删除房间。
+
+    - DEPT 房间（有 'DEPT' tag）禁止删除。
+    - 处于 SCHEDULING 状态的房间禁止删除。
+    """
+    room_db = await gtRoomManager.get_room_by_id(room_id)
+    if room_db is None or room_db.team_id != team_id:
+        raise TogoException(f"room_id '{room_id}' 不存在", error_code="ROOM_NOT_FOUND")
+    if "DEPT" in (room_db.tags or []):
+        raise TogoException("DEPT 房间不允许直接删除，请通过部门树管理", error_code="ROOM_DEPT_PROTECTED")
+
+    runtime_room = get_room(room_id)
+    if runtime_room is not None and runtime_room.state == RoomState.SCHEDULING:
+        raise TogoException("房间正在运行中，请先停止后再删除", error_code="ROOM_IS_ACTIVE")
+
+    await gtRoomManager.delete_room(room_id)
+
+
 async def activate_rooms(team_name: str | None = None) -> None:
     """统一激活入口：对目标房间调用 activate_scheduling（可按 team 过滤）。"""
     for room in _rooms.values():
