@@ -127,7 +127,7 @@ async def update_task(
 
     old_status = task.status
     is_assignee = (caller_id == task.assignee_id)
-    is_manager  = (task.manager_id is not None and caller_id == task.manager_id)
+    is_manager  = (task.manager_id is not None and caller_id == task.manager_id) or (task.manager_id is None and caller_id == task.creator_id)
     is_creator  = (caller_id == task.creator_id)
 
     # 权限校验
