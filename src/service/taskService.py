@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from typing import Optional
+from typing import Any
 
 from constants import TaskPriority, TaskStatus
 from dal.db import gtAgentTaskManager
@@ -175,7 +176,7 @@ async def update_task(
         }
 
     # 执行更新
-    fields = [GtAgentTask.status]
+    fields: list[Any] = [GtAgentTask.status]
     task.status = new_status
     if result:
         task.result = result

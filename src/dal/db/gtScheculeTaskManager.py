@@ -40,9 +40,9 @@ async def has_pending_room_task(
         .select()
         .where(
             GtScheculeTask.agent_id == agent_id,
-            GtScheculeTask.status.in_(statuses),
+            GtScheculeTask.status.in_(statuses),  # type: ignore[attr-defined]
         )
-        .order_by(GtScheculeTask.id.asc())
+        .order_by(GtScheculeTask.id.asc())  # type: ignore[attr-defined]
         .aio_execute()
     )
     return any(task.task_data.get("room_id") == room_id for task in tasks)
@@ -59,9 +59,9 @@ async def get_first_unfinish_task(agent_id: int) -> GtScheculeTask | None:
         .select()
         .where(
             GtScheculeTask.agent_id == agent_id,
-            GtScheculeTask.status.in_([AgentTaskStatus.PENDING, AgentTaskStatus.RUNNING, AgentTaskStatus.FAILED]),
+            GtScheculeTask.status.in_([AgentTaskStatus.PENDING, AgentTaskStatus.RUNNING, AgentTaskStatus.FAILED]),  # type: ignore[attr-defined]
         )
-        .order_by(GtScheculeTask.id.asc())
+        .order_by(GtScheculeTask.id.asc())  # type: ignore[attr-defined]
         .aio_first()
     )
 
@@ -110,7 +110,7 @@ async def get_running_tasks(agent_id: int) -> list[GtScheculeTask]:
             GtScheculeTask.agent_id == agent_id,
             GtScheculeTask.status == AgentTaskStatus.RUNNING,
         )
-        .order_by(GtScheculeTask.id.asc())
+        .order_by(GtScheculeTask.id.asc())  # type: ignore[attr-defined]
         .aio_execute()
     )
 
