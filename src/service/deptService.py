@@ -175,10 +175,10 @@ async def upsert_dept(
     if dept_id is not None:
         for dept in all_depts:
             if dept.parent_id == dept_id and dept.manager_id not in agent_ids:
-                mgr_name = agent_map.get(dept.manager_id)
-                mgr_name = mgr_name.name if mgr_name else str(dept.manager_id)
+                mgr_rows = await gtAgentManager.get_team_agents_by_ids(team_id, [dept.manager_id])
+                mgr_name = mgr_rows[0].name if mgr_rows else str(dept.manager_id)
                 raise TogoException(
-                    f"子部门 '{dept.name}' 的负责人 '{mgr_name}' 不在当前部门成员列表中，请将负责人加入成员列表后再更新",
+                    f"子部门 '{dept.name}' 的负责人 '{mgr_name}（ID={dept.manager_id}）' 不在当前部门成员列表中，请将负责人加入成员列表后再更新",
                     error_code="DEPT_MISSING_CHILD_MANAGER",
                 )
 

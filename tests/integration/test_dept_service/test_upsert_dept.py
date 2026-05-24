@@ -577,7 +577,8 @@ class TestUpsertDept(ServiceTestCase):
                 parent_id=None, dept_id=parent.id,
             )
         assert exc_info.value.error_code == "DEPT_MISSING_CHILD_MANAGER"
-        assert "engineering" in str(exc_info.value)
+        assert f"engineering" in str(exc_info.value)
+        assert f"eng_lead（ID={eng_lead_id}）" in str(exc_info.value)
 
     async def test_upsert_dept_child_manager_in_members_no_raise(self):
         """更新父部门时，成员列表包含子部门主管 → 不应报错。"""
