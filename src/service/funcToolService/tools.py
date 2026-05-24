@@ -976,7 +976,7 @@ async def finish_chat_turn(_context: ToolCallContext = None, confirm_no_need_tal
         return {
             "success": False,
             "message": (
-                f"finish 失败，你本轮未在任务房间【{room_name}】发言。\n\n"
+                f"finish 失败，你本次行动中，未在收到消息的房间【{room_name}】发言。\n\n"
                 "1. 如果你忘记发言（或者是不小心用直接输出替代了向房间发言），那么请调用 send_chat_msg 发送消息。\n"
                 "2. 如果你确认不需要发言，请设置 confirm_no_need_talk=true 重新调用 finish_chat_turn。"
             ),

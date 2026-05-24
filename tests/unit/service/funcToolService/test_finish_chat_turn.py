@@ -36,6 +36,7 @@ async def test_finish_no_content_without_confirm() -> None:
     result = await finish_chat_turn(_context=ctx)
     assert result["success"] is False
     assert "finish 失败" in result["message"]
+    assert "未在收到消息的房间" in result["message"]
     assert "send_chat_msg" in result["message"]
     assert "confirm_no_need_talk=true" in result["message"]
 
