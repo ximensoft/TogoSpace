@@ -63,7 +63,7 @@ def get_gtsp_binary_path() -> str:
     arch = arch_map.get(machine, machine)
 
     # 构建二进制文件名
-    binary_name = f"gtsp-{system}-{arch}"
+    binary_name = f"gtsp-{system}-{arch}.exe"
     binary_path = os.path.join(ASSETS_DIR, "execute", "gtsp", binary_name)
 
     if not os.path.exists(binary_path):
