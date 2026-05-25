@@ -62,8 +62,9 @@ def get_gtsp_binary_path() -> str:
     }
     arch = arch_map.get(machine, machine)
 
-    # 构建二进制文件名
-    binary_name = f"gtsp-{system}-{arch}.exe"
+    # 构建二进制文件名，Windows 使用 .exe 后缀，其他平台不加后缀
+    suffix = ".exe" if system == "windows" else ""
+    binary_name = f"gtsp-{system}-{arch}{suffix}"
     binary_path = os.path.join(ASSETS_DIR, "execute", "gtsp", binary_name)
 
     if not os.path.exists(binary_path):
