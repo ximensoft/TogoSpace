@@ -327,6 +327,11 @@ class TeamRoomModifyHandler(BaseHandler):
         room = await _get_team_room_or_404(team_id, room_id)
 
         if request.name is not None:
+            assertUtil.assertTrue(
+                "DEPT" not in (room.tags or []),
+                error_message="Dept rooms cannot be renamed",
+                error_code="dept_room_rename_not_allowed",
+            )
             room_name = request.name.strip()
             assertUtil.assertTrue(
                 bool(room_name),
