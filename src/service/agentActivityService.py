@@ -28,6 +28,7 @@ _DEFAULT_TITLES: dict[AgentActivityType, str] = {
     AgentActivityType.REASONING: "思考",
     AgentActivityType.CHAT_REPLY: "发言",
     AgentActivityType.MESSAGE_RECEIVED: "收到消息",
+    AgentActivityType.TASK_RECEIVED: "收到任务提醒",
 }
 
 

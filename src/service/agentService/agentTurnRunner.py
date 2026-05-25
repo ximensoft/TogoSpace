@@ -172,6 +172,13 @@ class AgentTurnRunner:
                             llmApiUtil.OpenAIMessage.text(OpenaiApiRole.USER, task_prompt),
                             tags=[AgentHistoryTag.ROOM_TURN_BEGIN],
                         ))
+                        await agentActivityService.add_activity(
+                            gt_agent=self.gt_agent,
+                            activity_type=AgentActivityType.TASK_RECEIVED,
+                            status=AgentActivityStatus.SUCCEEDED,
+                            detail=agent_task.title,
+                            metadata=self._base_metadata(),
+                        )
                     else:
                         synced_count = await self.pull_room_messages_to_history(room)
                         if synced_count == 0:
