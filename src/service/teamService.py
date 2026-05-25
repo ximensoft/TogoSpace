@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from dal.db import gtTeamManager, gtAgentManager, gtScheculeTaskManager, gtAgentHistoryManager, gtRoomMessageManager, gtRoomManager
 from exception import TogoException
@@ -10,7 +9,7 @@ from model.dbModel.gtDept import GtDept
 from model.dbModel.gtRoom import GtRoom
 from model.dbModel.gtTeam import GtTeam
 from service import deptService, roomService, schedulerService, agentService
-from util import assertUtil
+from util import assertUtil, fileUtil
 
 logger = logging.getLogger(__name__)
 
@@ -148,13 +147,7 @@ async def update_team_base_info(team_id: int, working_directory: str | None = No
         config.update(config_updates)
     if working_directory is not None:
         if working_directory:
-            try:
-                os.makedirs(working_directory, exist_ok=True)
-            except OSError as e:
-                raise TogoException(
-                    f"无法创建工作目录 '{working_directory}': {e.strerror}",
-                    error_code="working_directory_create_failed",
-                )
+            fileUtil.ensure_dir(working_directory)
             config["working_directory"] = working_directory
         else:
             config.pop("working_directory", None)
