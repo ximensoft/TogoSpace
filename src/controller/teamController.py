@@ -98,6 +98,7 @@ class TeamAgentUpdateItem(BaseModel):
 
 
 class UpdateTeamRequest(BaseModel):
+    name: str | None = None
     working_directory: str | None = None
     config: dict | None = None
     agents: list[TeamAgentUpdateItem] | None = None
@@ -231,6 +232,19 @@ class TeamModifyHandler(BaseHandler):
         assertUtil.assertNotNull(team, error_message=f"Team ID '{team_id}' not found", error_code="team_not_found")
 
         team_name = team.name
+
+        if request.name is not None:
+            new_name = request.name.strip()
+            assertUtil.assertTrue(bool(new_name), error_message="Team name must not be empty", error_code="team_name_empty")
+            existing = await gtTeamManager.get_team(new_name)
+            assertUtil.assertTrue(
+                existing is None or existing.id == team.id,
+                error_message=f"Team '{new_name}' already exists",
+                error_code="team_name_exists",
+            )
+            team.name = new_name
+            await gtTeamManager.save_team(team)
+            team_name = new_name
 
         if request.working_directory is not None or request.config is not None:
             await teamService.update_team_base_info(

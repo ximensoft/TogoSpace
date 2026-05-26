@@ -162,6 +162,7 @@ class AgentActivityType(EnhanceEnum):
     REASONING = auto()      # 思考内容（reasoning_content）
     CHAT_REPLY = auto()     # 直接发言（有 content 但无 tool_calls）
     MESSAGE_RECEIVED = auto()  # 收到房间消息
+    TASK_RECEIVED = auto()     # 收到协作任务提醒
 
 
 class AgentActivityStatus(EnhanceEnum):
@@ -192,6 +193,7 @@ class TaskPriority(EnhanceEnum):
 class AgentTaskType(EnhanceEnum):
     """Agent 任务类型枚举。"""
     ROOM_MESSAGE = auto()
+    TODO_TASK = auto()  # 协作任务驱动（Agent 间结构化任务）
 
 
 class AgentTaskStatus(EnhanceEnum):
@@ -205,10 +207,12 @@ class AgentTaskStatus(EnhanceEnum):
 
 class TurnStepResult(EnhanceEnum):
     """Turn 内部单步推进结果枚举。"""
-    TURN_DONE = auto()      # 当前 turn 已完成，通常表示 finish_chat_turn 已执行成功
-    NO_ACTION = auto()      # 当前 step 未产出可执行动作，需要按失败行动逻辑处理
-    CONTINUE = auto()       # 当前 turn 仍需继续推进，进入下一个 step
-    ERROR_ACTION = auto()   # 模型输出格式异常（如将 tool call 写入 content 字段）
+    TURN_DONE = auto()                      # finish 类工具执行成功，turn 结束
+    TOOL_EXECUTE_SUCCESS = auto()           # 非 finish 工具执行成功，turn 继续推进
+    TOOL_EXECUTE_FAILED_FINISH = auto()     # finish 类工具执行失败
+    LLM_OUTPUT_ERROR = auto()               # 模型输出格式异常（如将 tool call 写入 content 字段）
+    LLM_OUTPUT_NO_ACTION = auto()           # 模型输出纯文本，无工具调用
+    LLM_OUTPUT_TOOL_CALLS = auto()          # 模型生成了 tool_calls，待执行
 
 
 class ScheduleState(EnhanceEnum):

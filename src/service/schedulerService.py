@@ -27,7 +27,7 @@ def _publish_state_change() -> None:
     """发布调度状态变更事件。"""
     messageBus.publish(
         MessageBusTopic.SCHEDULE_STATE_CHANGED,
-        schedule_state=_schedule_state.value,
+        schedule_state=_schedule_state.name,
         not_running_reason=_schedule_not_running_reason,
     )
 

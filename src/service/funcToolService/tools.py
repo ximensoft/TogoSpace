@@ -5,8 +5,8 @@ import datetime
 import logging
 from zoneinfo import ZoneInfo
 
-from constants import AgentStatus, DriverType, EmployStatus, RoleTemplateType, RoomState, SpecialAgent
-from dal.db import gtAgentManager, gtRoomManager, gtRoleTemplateManager, gtTeamManager
+from constants import AgentStatus, AgentTaskType, DriverType, EmployStatus, RoleTemplateType, RoomState, SpecialAgent, TaskStatus
+from dal.db import gtAgentManager, gtRoomManager, gtRoleTemplateManager, gtTeamManager, gtAgentTaskManager
 from model.dbModel.gtAgent import GtAgent
 from model.dbModel.gtDept import GtDept
 from model.dbModel.gtRoleTemplate import GtRoleTemplate
@@ -928,47 +928,68 @@ async def send_chat_msg(room_name: str, msg: str, _context: ToolCallContext = No
         logger.warning(f"send_chat_msg: 目标房间不存在 room={room_name} team_id={_context.team_id}")
         return {"success": False, "message": f"目标房间不存在: {room_name} (team_id={_context.team_id})"}
 
-    if _context.chat_room is not None and target_room.room_id != _context.chat_room.room_id:
-        sender_id = _context.agent_id
-        if not target_room.can_post_message(sender_id):
-            logger.warning(
-                "send_chat_msg: 发言者不在目标房间 agents 中 sender_id=%s room=%s team_id=%s agents=%s",
-                _context.agent_id,
-                room_name,
-                _context.team_id,
-                target_room.get_agent_ids(),
-            )
-            return {"success": False, "message": f"你不在目标房间 {target_room.name} 中，发送失败。"}
+    if not target_room.can_post_message(_context.agent_id):
+        logger.warning(
+            "send_chat_msg: 发言者不在目标房间 agents 中 sender_id=%s room=%s team_id=%s agents=%s",
+            _context.agent_id,
+            room_name,
+            _context.team_id,
+            target_room.get_agent_ids(),
+        )
+        return {"success": False, "message": f"你不在房间 {target_room.name} 中，发送失败。"}
 
-    sender_id = _context.agent_id
-    if not (_context.chat_room and _context.chat_room.can_post_message(sender_id)):
-        logger.warning(f"send_chat_msg: 发言者不在当前房间中 sender_id={_context.agent_id}")
-        return {"success": False, "message": f"发言者（agent_id={_context.agent_id}）不在当前房间中"}
-    await target_room.add_message(sender_id, msg)
+    await target_room.add_message(_context.agent_id, msg)
 
-    if target_room is _context.chat_room:
-        return {"success": True, "message": "消息已送达房间。如果你还有其他工具需要调用，请继续；如果本轮操作已全部完成，请调用 finish_chat_turn 结束本轮。"}
-
-    assert _context.chat_room is not None, "send_chat_msg: 跨房间发言时 chat_room 不应为 None"
+    if _context.chat_room is not None and target_room.room_id == _context.chat_room.room_id:
+        return {"success": True, "message": "消息已送达房间。如果你还有其他工具需要调用，请继续；如果本轮操作已全部完成，请调用 finish_action 结束行动。"}
 
     return {"success": True, "message": (
-        f"消息已送达 {target_room.name}。如果你还有其他工具需要调用，请继续；如果本轮操作已全部完成，请调用 finish_chat_turn 结束本轮。"
+        f"消息已送达 {target_room.name}。如果你还有其他工具需要调用，请继续；如果本轮操作已全部完成，请调用 finish_action 结束行动。"
     )}
 
 
-async def finish_chat_turn(_context: ToolCallContext = None, confirm_no_need_talk: bool = False) -> dict:
-    """结束本轮行动。当你完成所有发言和工具调用后（或者无需行动时），必须调用此工具来把行动机会让给下一位成员。
+async def finish_action(_context: ToolCallContext = None, confirm_no_need_talk: bool = False) -> dict:
+    """结束行动。当你完成所有发言和工具调用后（或者无需行动时），必须调用此工具来把行动机会让给下一位成员。
 
     参数：
-    - confirm_no_need_talk (bool)：在未发言时，需手动设置此参数为 true 来确认。注意：请确保没有以直接输出的方式回复消息，直接输出的文字用户看不到。"""
-    if _context is None or _context.chat_room is None:
+    - confirm_no_need_talk (bool)：确认本轮无需在任何房间发言。仅在你本轮没有通过 send_chat_msg 发过消息时才需要设置为 true。
+      如果你在本轮已在收到消息的房间发送过消息，那么无需设置此参数为 true。
+      ⚠️ 注意：直接输出（非 send_chat_msg）的文字用户看不到，不算发言。"""
+    if _context is None:
+        logger.warning("结束行动失败，上下文未设置")
+        return {"success": False, "message": "当前没有激活的上下文。"}
+
+    # 协作任务模式：按任务类型判断，检查被唤醒的任务是否已处理
+    if (
+        _context.schedule_task is not None
+        and _context.schedule_task.task_type == AgentTaskType.TODO_TASK
+    ):
+        agent_task_id = _context.schedule_task.task_data.get("agent_task_id")
+        agent_task = await gtAgentTaskManager.get_task(agent_task_id) if agent_task_id else None
+        if agent_task is not None and agent_task.status == TaskStatus.TODO:
+            logger.warning(f"finish_action 被拒绝，协作任务仍为 TODO: agent_id={_context.agent_id}, agent_task_id={agent_task_id}")
+            return {
+                "success": False,
+                "message": (
+                    f"finish 失败，被唤醒的任务【{agent_task.title}】状态仍为 TODO，尚未处理。\n\n"
+                    "请先完成任务处理：\n"
+                    "- 若已完成，请调用 `update_task` 将状态改为 DONE 并填写结果。\n"
+                    "- 若需暂缓（本轮无法完成），请调用 `update_task` 将状态改为 ON_HOLD。\n"
+                    "- 若需取消，请调用 `update_task` 将状态改为 CANCELLED。\n"
+                    "完成后再调用 finish_action。"
+                ),
+            }
+        logger.info(f"Agent 结束协作任务行动: agent_id={_context.agent_id}")
+        return {"success": True, "message": "已结束了本轮行动."}
+
+    if _context.chat_room is None:
         logger.warning("结束行动失败，聊天室上下文未设置")
         return {"success": False, "message": "当前没有激活的房间上下文。"}
 
     if confirm_no_need_talk and _context.chat_room.current_turn_has_content:
         return {
             "success": False,
-            "message": "你本轮已经在房间发言了，不需要设置 confirm_no_need_talk=true。请直接调用 finish_chat_turn（不带参数）结束本轮。",
+            "message": "finish_action 失败：你本轮已经通过 send_chat_msg 发过消息了，不需要设置 confirm_no_need_talk=true。请直接调用 finish_action（不带任何参数）结束行动。",
         }
 
     if not confirm_no_need_talk and not _context.chat_room.current_turn_has_content:
@@ -978,7 +999,7 @@ async def finish_chat_turn(_context: ToolCallContext = None, confirm_no_need_tal
             "message": (
                 f"finish 失败，你本次行动中，未在收到消息的房间【{room_name}】发言。\n\n"
                 "1. 如果你忘记发言（或者是不小心用直接输出替代了向房间发言），那么请调用 send_chat_msg 发送消息。\n"
-                "2. 如果你确认不需要发言，请设置 confirm_no_need_talk=true 重新调用 finish_chat_turn。"
+                "2. 如果你确认不需要发言，请设置 confirm_no_need_talk=true 重新调用 finish_action。"
             ),
         }
 

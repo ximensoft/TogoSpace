@@ -163,6 +163,54 @@ def get_submodule_recorded_sha(repo: Path, rev: str, submodule_path: str) -> str
     return parts[2]
 
 
+def report_sync_state(repo_root: Path, frontend: Path) -> None:
+    """完成后检查前后端子模块指针同步状态，若存在不一致则输出提示。"""
+    try:
+        frontend_head = get_rev_sha(frontend, "HEAD")
+    except Exception:
+        return  # submodule 未初始化，跳过检查
+
+    issues: list[str] = []
+
+    # 1. 主仓库工作区是否有未提交的前端指针变更
+    status_lines = get_status_lines(repo_root)
+    frontend_in_status = any("frontend" in line for line in status_lines)
+    if frontend_in_status:
+        issues.append("后端主仓库存在未提交的前端指针变更（working tree dirty）")
+
+    # 2. 已提交的指针是否与前端 HEAD 一致
+    backend_recorded: str | None = None
+    try:
+        backend_recorded = get_submodule_recorded_sha(repo_root, "HEAD", "frontend")
+        if not frontend_in_status and frontend_head != backend_recorded:
+            issues.append(
+                f"前端 HEAD ({frontend_head[:12]}) 与后端记录指针 ({backend_recorded[:12]}) 不一致"
+            )
+    except Exception:
+        pass
+
+    # 3. 后端主仓库是否有未推送到远端的提交
+    try:
+        origin_recorded = get_submodule_recorded_sha(repo_root, "origin/master", "frontend")
+        recorded = backend_recorded or get_submodule_recorded_sha(repo_root, "HEAD", "frontend")
+        if recorded != origin_recorded:
+            issues.append(
+                f"后端主仓库有未推送的指针提交（本地: {recorded[:12]}，远端: {origin_recorded[:12]}）"
+            )
+    except Exception:
+        pass
+
+    if issues:
+        print()
+        print("⚠️  前后端子模块指针同步状态存在问题:")
+        for issue in issues:
+            print(f"   · {issue}")
+        print()
+        print("   建议执行:")
+        print("   python scripts/commit_and_push_frondbackend.py \\")
+        print('       --action commit,push --target backend -m "chore: sync frontend submodule pointer"')
+
+
 def pull_ff_only(repo: Path, name: str, remote: str, branch: str) -> None:
     """仅在可 fast-forward 时拉取远端。"""
     print(f"{name}: fast-forward 拉取远端代码...")
@@ -479,6 +527,7 @@ def main() -> None:
         if args.target in ("backend", "all"):
             process_repo(repo_root, MAIN_REPO_DISPLAY_NAME, remaining_actions, args.message, switch_master=False)
 
+    report_sync_state(repo_root, frontend)
     print("完成")
 
 

@@ -25,7 +25,8 @@ class CreateRoomRequest(BaseModel):
 
 
 class UpdateRoomRequest(BaseModel):
-    type: str
+    name: str | None = None
+    type: str | None = None
     initial_topic: str | None = None
     max_rounds: int | None = None
 
@@ -324,9 +325,28 @@ class TeamRoomModifyHandler(BaseHandler):
         team_name = team.name
 
         room = await _get_team_room_or_404(team_id, room_id)
-        room_name = room.name
 
-        room.type = RoomType(request.type)
+        if request.name is not None:
+            assertUtil.assertTrue(
+                "DEPT" not in (room.tags or []),
+                error_message="Dept rooms cannot be renamed",
+                error_code="dept_room_rename_not_allowed",
+            )
+            room_name = request.name.strip()
+            assertUtil.assertTrue(
+                bool(room_name),
+                error_message="Room name must not be empty",
+                error_code="room_name_empty",
+            )
+            existing = await gtRoomManager.get_room_by_team_and_name(team_id, room_name)
+            assertUtil.assertTrue(
+                existing is None or existing.id == room.id,
+                error_message=f"Room '{room_name}' already exists",
+                error_code="room_exists",
+            )
+            room.name = room_name
+        if request.type is not None:
+            room.type = RoomType(request.type)
         if request.initial_topic is not None:
             room.initial_topic = request.initial_topic
         if request.max_rounds is not None:
@@ -335,7 +355,7 @@ class TeamRoomModifyHandler(BaseHandler):
         await gtRoomManager.save_room(room)
         await teamService.hot_reload_team(team_name)
 
-        self.return_json({"status": "updated", "room_name": room_name})
+        self.return_json({"status": "updated", "room_name": room.name})
 
 
 class TeamRoomDeleteHandler(BaseHandler):
