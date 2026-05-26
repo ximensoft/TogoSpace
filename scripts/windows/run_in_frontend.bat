@@ -1,5 +1,4 @@
-@echo off
-chcp 65001 >nul 2>&1
+﻿@echo off
 rem Windows foreground debug script: keep this window open; closing it terminates the backend process.
 setlocal
 
