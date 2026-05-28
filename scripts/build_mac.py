@@ -142,13 +142,12 @@ def _check_quarantine_on_executables():
             except OSError:
                 continue
 
-            # 检查是否有 quarantine 属性
+            # 仅根据返回码判断属性是否存在，避免属性内容里的非 UTF-8 字节导致解码失败。
             result = subprocess.run(
-                ["xattr", "-l", filepath],
+                ["xattr", "-p", quarantine_attr, filepath],
                 capture_output=True,
-                text=True,
             )
-            if quarantine_attr in result.stdout:
+            if result.returncode == 0:
                 rel_path = os.path.relpath(filepath, REPO_ROOT)
                 errors.append(rel_path)
 
