@@ -118,6 +118,11 @@ class RoomMessageStore:
         """检查是否有 insert_immediately=True 且 seq=None 的待注入消息。"""
         return any(m.seq is None and m.insert_immediately for m in self._messages)
 
+    def has_unread_messages(self, agent_id: int) -> bool:
+        """检查是否有 agent_id 尚未读取的主流消息（不推进游标）。"""
+        next_seq = self._agent_seq_read.get(agent_id, 0)
+        return any(m.seq is not None and m.seq >= next_seq for m in self._messages)
+
     async def flush_pending_immediate(self) -> List[GtRoomMessage]:
         """将 insert_immediately=True 的 pending 消息分配 seq 并更新 DB，返回已处理列表。"""
         return await self._flush(immediate_only=True)

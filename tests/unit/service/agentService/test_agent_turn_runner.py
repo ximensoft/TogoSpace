@@ -13,6 +13,7 @@ from service.agentService.agentTurnRunner import AgentTurnRunner
 from service.agentService.toolRegistry import ToolExecutionResult
 from service.agentService.driver.base import AgentDriverConfig
 from service.roomService import ChatRoom
+import service.roomService as roomService
 from util import llmApiUtil
 
 
@@ -42,8 +43,7 @@ def turn_runner():
 @pytest.fixture(autouse=True)
 def mock_get_control_room(monkeypatch):
     """单元测试不初始化 DB，mock 掉 get_control_room_for_agent 避免 peewee 报错。"""
-    import service.roomService as rs
-    monkeypatch.setattr(rs, "get_control_room_for_agent", AsyncMock(return_value=None))
+    monkeypatch.setattr(roomService, "get_control_room_for_agent", AsyncMock(return_value=None))
 
 
 from util.assertUtil import MakeSureException

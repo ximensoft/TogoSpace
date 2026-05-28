@@ -162,6 +162,9 @@ class ChatRoom:
     def has_pending_immediate_messages(self, agent_id: int) -> bool:
         return self._store.has_pending_immediate_messages(agent_id)
 
+    def has_unread_messages(self, agent_id: int) -> bool:
+        return self._store.has_unread_messages(agent_id)
+
     async def add_message(self, sender_id: int, content: str, send_time: datetime | None = None, *,
                           insert_immediately: bool = False) -> None:
         await self._append_message(sender_id, content, send_time=send_time, insert_immediately=insert_immediately)

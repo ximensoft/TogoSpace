@@ -269,10 +269,13 @@ class AgentTurnRunner:
         next_tool_choice: str | None = None
 
         while True:
-            # 检查 operator 私聊控制房间是否有待即时插入的消息
+            # 检查 operator 私聊控制房间是否有待即时插入或未读的消息
             if self._history.is_safe_for_immediate_insert():
                 ctrl_room = await roomService.get_control_room_for_agent(self.gt_agent.team_id, self.gt_agent.id)
-                if ctrl_room is not None and ctrl_room.has_pending_immediate_messages(self.gt_agent.id):
+                if ctrl_room is not None and (
+                    ctrl_room.has_pending_immediate_messages(self.gt_agent.id) or
+                    ctrl_room.has_unread_messages(self.gt_agent.id)
+                ):
                     await self._inject_immediate_messages(ctrl_room)
 
             result = await self._advance_step(room, tools, tool_choice=next_tool_choice)
