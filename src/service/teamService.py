@@ -77,6 +77,9 @@ async def hot_reload_team(name: str) -> None:
     await restart_team_runtime(team.id)
     logger.info("Team '%s' 热更新后已触发调度启动", name)
 
+    from service import messageBus
+    from constants import MessageBusTopic
+    messageBus.publish(MessageBusTopic.TEAM_RELOADED, team_id=team.id)
     logger.info(f"Team '{name}' 热更新完成")
 
 

@@ -49,8 +49,8 @@ if os.name == "posix" and sys.platform == "darwin":
 
 class TestRoleTemplateToolMetadata(ServiceTestCase):
     async def test_optional_list_str_maps_to_array(self) -> None:
-        """Optional[list[str]] 应映射为 array。"""
-        assert python_type_to_json_schema(Optional[list[str]]) == {"type": "array"}
+        """Optional[list[str]] 应映射为 array with items。"""
+        assert python_type_to_json_schema(Optional[list[str]]) == {"type": "array", "items": {"type": "string"}}
 
     async def test_role_template_tools_registered(self) -> None:
         """role template 管理工具应加入注册表。"""
