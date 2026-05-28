@@ -24,6 +24,8 @@ DeptNodePreset.model_rebuild()
 
 
 def _default_workspace_root() -> str:
+    if _is_test_env():
+        return os.path.abspath(os.path.join(appPaths._ROOT, "test_data", "workspace"))
     return appPaths.WORKSPACE_ROOT
 
 
