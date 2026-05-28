@@ -69,6 +69,7 @@ application = tornado.web.Application([
     # System Status & Quick Init (V13)
     (r"/system/status.json",                         systemController.SystemStatusHandler),
     (r"/system/schedule/resume.json",                systemController.SystemScheduleResumeHandler),
+    (r"/system/database/backup.json",                systemController.SystemDatabaseBackupHandler),
     (r"/config/quick_init.json",                     initController.QuickInitHandler),
 
     # Role templates

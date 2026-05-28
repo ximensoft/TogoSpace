@@ -1,8 +1,9 @@
 import logging
+import os
 
 from controller.baseController import BaseHandler
 from constants import ScheduleState
-from service import schedulerService
+from service import ormService, schedulerService
 from util import configUtil
 
 logger = logging.getLogger(__name__)
@@ -53,4 +54,15 @@ class SystemScheduleResumeHandler(BaseHandler):
         self.return_success(
             schedule_state=schedule_state,
             not_running_reason=not_running_reason,
+        )
+
+
+class SystemDatabaseBackupHandler(BaseHandler):
+    """POST /system/database/backup.json — 备份当前数据库文件。"""
+
+    async def post(self):
+        backup_path = ormService.backup_database()
+        self.return_success(
+            backup_path=backup_path,
+            backup_file_name=os.path.basename(backup_path),
         )
