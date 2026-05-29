@@ -652,22 +652,21 @@ async def save_dept(
     parent_id: int | None = None
     if parent_name is not None:
         normalized_parent = parent_name.strip()
-        if normalized_parent:
-            parent_dept = await gtDeptManager.get_dept_by_name(team_id, normalized_parent)
-            if parent_dept is None:
-                return {"success": False, "message": f"未找到父组织: {normalized_parent}"}
-            if existing is not None:
-                # 不能把自身设为父组织
-                if parent_dept.id == existing.id:
-                    return {"success": False, "message": "父组织不能设置为当前组织自身。"}
-                # 不能把子孙组织设为父组织（会产生环）
-                dept_tree = await deptService.get_dept_tree(team_id)
-                current_node = _find_dept_node(dept_tree, existing.id)
-                if current_node is not None:
-                    descendant_ids = _collect_descendant_ids(current_node)
-                    if parent_dept.id in descendant_ids:
-                        return {"success": False, "message": f"父组织 {normalized_parent} 是当前组织的子组织，不能形成循环引用。"}
-            parent_id = parent_dept.id
+        parent_dept = await gtDeptManager.get_dept_by_name(team_id, normalized_parent)
+        if parent_dept is None:
+            return {"success": False, "message": f"未找到父组织: {normalized_parent}"}
+        if existing is not None:
+            # 不能把自身设为父组织
+            if parent_dept.id == existing.id:
+                return {"success": False, "message": "父组织不能设置为当前组织自身。"}
+            # 不能把子孙组织设为父组织（会产生环）
+            dept_tree = await deptService.get_dept_tree(team_id)
+            current_node = _find_dept_node(dept_tree, existing.id)
+            if current_node is not None:
+                descendant_ids = _collect_descendant_ids(current_node)
+                if parent_dept.id in descendant_ids:
+                    return {"success": False, "message": f"父组织 {normalized_parent} 是当前组织的子组织，不能形成循环引用。"}
+        parent_id = parent_dept.id
     else:
         # parent_name=None：仅允许更新已是根节点的现有组织；新建时必须指定父组织
         if existing is None:

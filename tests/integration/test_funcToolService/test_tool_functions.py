@@ -14,7 +14,10 @@ from dal.db import gtScheculeTaskManager, gtTeamManager, gtAgentManager, gtRoleT
 from model.dbModel.gtAgent import GtAgent
 from model.dbModel.gtDept import GtDept
 from model.dbModel.gtRoleTemplate import GtRoleTemplate
+from model.dbModel.gtRoom import GtRoom
+from model.dbModel.gtRoomMessage import GtRoomMessage
 from model.dbModel.gtTeam import GtTeam
+from util.configTypes import AgentPreset
 from service.roomService import ToolCallContext
 from service.funcToolService.funcToolType import FuncTool
 from service.funcToolService.funcToolType import (
@@ -31,6 +34,7 @@ from service.funcToolService.tools import (
     wake_up_agent,
     send_chat_msg,
     finish_action,
+    save_dept,
 )
 from constants import AgentStatus, AgentTaskStatus, AgentTaskType
 from ...base import ServiceTestCase
@@ -469,3 +473,120 @@ class TestToolFunctions(ServiceTestCase):
 
         assert not result["success"]
         assert "收到消息的房间【turn_room】" in result["message"]
+
+
+class TestSaveDeptParentName(ServiceTestCase):
+    """save_dept 工具函数的 parent_name 参数校验测试。"""
+
+    @classmethod
+    async def async_setup_class(cls):
+        db_path = cls._get_test_db_path()
+        await ormService.startup(db_path)
+        await persistenceService.startup()
+        await agentService.startup()
+        await roomService.startup()
+
+        team = await gtTeamManager.save_team(GtTeam(name=TEAM))
+        template = await gtRoleTemplateManager.save_role_template(GtRoleTemplate(name="test_role", soul="test"))
+        await gtAgentManager.batch_save_agents(
+            team.id,
+            [
+                GtAgent(team_id=team.id, name="alice", role_template_id=template.id),
+                GtAgent(team_id=team.id, name="bob", role_template_id=template.id),
+                GtAgent(team_id=team.id, name="charlie", role_template_id=template.id),
+            ],
+        )
+        agents = await gtAgentManager.get_team_all_agents(team.id)
+        cls.agent_ids = {a.name: a.id for a in agents}
+        cls.team_id = team.id
+
+        alice = next(a for a in agents if a.name == "alice")
+        bob = next(a for a in agents if a.name == "bob")
+        charlie = next(a for a in agents if a.name == "charlie")
+
+        # 创建根部门（需要先停用团队）
+        await gtTeamManager.set_team_enabled(team.id, False)
+        await deptService.overwrite_dept_tree(
+            team.id,
+            GtDept(
+                name="root",
+                responsibility="root dept",
+                manager_id=alice.id,
+                agent_ids=[alice.id, bob.id, charlie.id],
+            ),
+        )
+        await gtTeamManager.set_team_enabled(team.id, True)
+
+        cls.ctx = ToolCallContext(agent_id=alice.id, team_id=team.id, chat_room=None)
+
+    @classmethod
+    async def async_teardown_class(cls):
+        roomService.shutdown()
+        await persistenceService.shutdown()
+        await ormService.shutdown()
+
+    async def test_parent_name_empty_string_returns_error(self):
+        """parent_name='' 应报错：未找到父组织。"""
+        result = await save_dept(
+            name="test_dept",
+            responsibility="test",
+            manager_name="alice",
+            member_names=["alice", "bob"],
+            parent_name="",
+            _context=self.ctx,
+        )
+        assert not result["success"]
+        assert "未找到父组织" in result["message"]
+
+    async def test_parent_name_none_for_new_dept_returns_error(self):
+        """parent_name=None 新建组织应报错：必须指定父组织。"""
+        result = await save_dept(
+            name="test_dept",
+            responsibility="test",
+            manager_name="alice",
+            member_names=["alice", "bob"],
+            parent_name=None,
+            _context=self.ctx,
+        )
+        assert not result["success"]
+        assert "必须指定父组织" in result["message"]
+
+    async def test_parent_name_valid_creates_dept(self):
+        """parent_name 指定有效的父组织名称时应成功创建。"""
+        result = await save_dept(
+            name="child_dept",
+            responsibility="child",
+            manager_name="bob",
+            member_names=["bob", "charlie"],
+            parent_name="root",
+            _context=self.ctx,
+        )
+        assert result["success"]
+        assert result["dept"]["dept_name"] == "child_dept"
+        assert result["dept"]["manager"] == "bob"
+
+    async def test_parent_name_nonexistent_returns_error(self):
+        """parent_name 指定不存在的组织名称应报错。"""
+        result = await save_dept(
+            name="test_dept",
+            responsibility="test",
+            manager_name="alice",
+            member_names=["alice", "bob"],
+            parent_name="nonexistent",
+            _context=self.ctx,
+        )
+        assert not result["success"]
+        assert "未找到父组织: nonexistent" in result["message"]
+
+    async def test_parent_name_whitespace_only_returns_error(self):
+        """parent_name='   '（纯空白）应报错：未找到父组织。"""
+        result = await save_dept(
+            name="test_dept",
+            responsibility="test",
+            manager_name="alice",
+            member_names=["alice", "bob"],
+            parent_name="   ",
+            _context=self.ctx,
+        )
+        assert not result["success"]
+        assert "未找到父组织" in result["message"]
