@@ -10,9 +10,10 @@ import service.ormService as ormService
 import service.persistenceService as persistenceService
 import service.roomService as roomService
 import service.agentService as agentService
-from dal.db import gtScheculeTaskManager, gtTeamManager, gtAgentManager
+from dal.db import gtScheculeTaskManager, gtTeamManager, gtAgentManager, gtRoleTemplateManager
 from model.dbModel.gtAgent import GtAgent
 from model.dbModel.gtDept import GtDept
+from model.dbModel.gtRoleTemplate import GtRoleTemplate
 from model.dbModel.gtTeam import GtTeam
 from service.roomService import ToolCallContext
 from service.funcToolService.funcToolType import FuncTool
@@ -161,17 +162,29 @@ class TestToolFunctions(ServiceTestCase):
         await agentService.startup()
         await roomService.startup()
         team = await gtTeamManager.save_team(GtTeam(name=TEAM))
+        template = await gtRoleTemplateManager.save_role_template(GtRoleTemplate(name="test_role", soul="test"))
         await gtAgentManager.batch_save_agents(
             team.id,
             [
-                GtAgent(team_id=team.id, name="alice", role_template_id=0),
-                GtAgent(team_id=team.id, name="bob", role_template_id=0),
-                GtAgent(team_id=team.id, name="char", role_template_id=0),
+                GtAgent(team_id=team.id, name="alice", role_template_id=template.id),
+                GtAgent(team_id=team.id, name="bob", role_template_id=template.id),
+                GtAgent(team_id=team.id, name="char", role_template_id=template.id),
             ],
         )
         agents = await gtAgentManager.get_team_all_agents(team.id)
         cls.agent_ids = {a.name: a.id for a in agents}
         cls.team_id = team.id
+        cls.role_template_id = template.id
+
+        alice = next(a for a in agents if a.name == "alice")
+        bob = next(a for a in agents if a.name == "bob")
+        char = next(a for a in agents if a.name == "char")
+        await gtTeamManager.set_team_enabled(team.id, False)
+        await deptService.overwrite_dept_tree(
+            team.id,
+            GtDept(name="company", manager_id=alice.id, agent_ids=[alice.id, bob.id, char.id]),
+        )
+        await gtTeamManager.set_team_enabled(team.id, True)
 
     @classmethod
     async def async_teardown_class(cls):
@@ -354,6 +367,9 @@ class TestToolFunctions(ServiceTestCase):
 
     async def test_start_chat_creates_room_and_loads_it_immediately(self):
         """start_chat 新建私聊后，应立即加载运行时房间并允许立刻发消息。"""
+        # 此前测试可能 disable 了团队；重新启用以允许 hot_reload_team 加载房间
+        await gtTeamManager.set_team_enabled(self.team_id, True)
+
         await self.create_room(TEAM, "lobby", ["alice"])
         source_room = roomService.get_room_by_key(f"lobby@{TEAM}")
         await source_room.activate_scheduling()
@@ -364,12 +380,12 @@ class TestToolFunctions(ServiceTestCase):
         if target is None:
             await gtAgentManager.batch_save_agents(
                 self.team_id,
-                [GtAgent(team_id=self.team_id, name=target_name, role_template_id=0)],
+                [GtAgent(team_id=self.team_id, name=target_name, role_template_id=self.role_template_id)],
             )
             target = await gtAgentManager.get_agent(self.team_id, target_name)
         assert target is not None
 
-        create_result = await start_chat(target_name, initial_topic="sync task", _context=ctx)
+        create_result = await start_chat(target_name, _context=ctx)
 
         assert create_result["success"]
         assert create_result["is_new_created"] is True

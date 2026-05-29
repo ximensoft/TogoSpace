@@ -6,11 +6,13 @@ from unittest.mock import patch
 import pytest
 
 from constants import RoomState, RoomType, MessageBusTopic, SpecialAgent
-from dal.db import gtAgentManager, gtRoomManager, gtTeamManager
+from dal.db import gtAgentManager, gtRoomManager, gtTeamManager, gtRoleTemplateManager
 from model.dbModel.gtAgent import GtAgent
+from model.dbModel.gtDept import GtDept
 from model.dbModel.gtRoom import GtRoom
+from model.dbModel.gtRoleTemplate import GtRoleTemplate
 from model.dbModel.gtTeam import GtTeam
-from service import agentService, ormService, persistenceService, roomService
+from service import agentService, deptService, ormService, persistenceService, roomService
 from tests.base import ServiceTestCase
 
 TEAM = "test_control_room_team"
@@ -31,14 +33,24 @@ class TestGetOrCreateControlRoom(ServiceTestCase):
         await roomService.startup()
 
         team = await gtTeamManager.save_team(GtTeam(name=TEAM))
+        template = await gtRoleTemplateManager.save_role_template(GtRoleTemplate(name="test_role", soul="test"))
         await gtAgentManager.batch_save_agents(
             team.id,
             [
-                GtAgent(team_id=team.id, name="alice", role_template_id=0),
-                GtAgent(team_id=team.id, name="bob", role_template_id=0),
+                GtAgent(team_id=team.id, name="alice", role_template_id=template.id),
+                GtAgent(team_id=team.id, name="bob", role_template_id=template.id),
             ],
         )
         cls.team_id = team.id
+
+        alice = await gtAgentManager.get_agent(team.id, "alice")
+        bob = await gtAgentManager.get_agent(team.id, "bob")
+        await gtTeamManager.set_team_enabled(team.id, False)
+        await deptService.overwrite_dept_tree(
+            team.id,
+            GtDept(name="team", manager_id=alice.id, agent_ids=[alice.id, bob.id]),
+        )
+        await gtTeamManager.set_team_enabled(team.id, True)
 
     @classmethod
     async def async_teardown_class(cls):

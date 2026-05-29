@@ -457,25 +457,64 @@ class TestDalManagers(ServiceTestCase):
         await gtRoomManager.delete_rooms_by_team(team.id)
         assert await gtRoomManager.get_rooms_by_team(team.id) == []
 
-    async def test_room_manager_delete_rooms_by_biz_ids_not_in_keeps_non_dept_null_biz_id(self):
+    async def test_room_manager_delete_rooms_by_biz_ids_not_in_deletes_only_unmatched_dept_rooms(self):
+        """biz_ids 非空时：删除 biz_id 不在列表中的 DEPT 房间，保留非 DEPT 和匹配的 DEPT 房间。"""
         await self._reset_tables()
 
         team = await gtTeamManager.save_team(GtTeam(name="biz_cleanup_team"))
 
-        non_dept_null = await gtRoomManager.save_room(GtRoom(
-            team_id=team.id,
-            name="non_dept_null",
-            type=RoomType.GROUP,
-            initial_topic="",
-            max_rounds=5,
-            agent_ids=[],
-            biz_id=None,
-            tags=[],
+        # 应保留：非 DEPT 房间
+        non_dept = await gtRoomManager.save_room(GtRoom(
+            team_id=team.id, name="non_dept", type=RoomType.GROUP,
+            initial_topic="", max_rounds=5, agent_ids=[], biz_id=None, tags=[],
+        ))
+        # 应保留：DEPT 房间，biz_id 在列表中
+        dept_match = await gtRoomManager.save_room(GtRoom(
+            team_id=team.id, name="dept_match", type=RoomType.GROUP,
+            initial_topic="", max_rounds=5, agent_ids=[], biz_id="dept_a", tags=["DEPT"],
+        ))
+        # 应删除：DEPT 房间，biz_id 不在列表中
+        dept_unmatch = await gtRoomManager.save_room(GtRoom(
+            team_id=team.id, name="dept_unmatch", type=RoomType.GROUP,
+            initial_topic="", max_rounds=5, agent_ids=[], biz_id="dept_b", tags=["DEPT"],
+        ))
+        # 应删除：DEPT 房间，biz_id 为 NULL
+        dept_null = await gtRoomManager.save_room(GtRoom(
+            team_id=team.id, name="dept_null", type=RoomType.GROUP,
+            initial_topic="", max_rounds=5, agent_ids=[], biz_id=None, tags=["DEPT"],
+        ))
+
+        await gtRoomManager.delete_rooms_by_biz_ids_not_in(team.id, ["dept_a"])
+
+        assert await gtRoomManager.get_room_by_id(non_dept.id) is not None
+        assert await gtRoomManager.get_room_by_id(dept_match.id) is not None
+        assert await gtRoomManager.get_room_by_id(dept_unmatch.id) is None
+        assert await gtRoomManager.get_room_by_id(dept_null.id) is None
+
+    async def test_room_manager_delete_rooms_by_biz_ids_not_in_empty_list_deletes_all_dept_rooms(self):
+        """biz_ids 为空时删除 team 下所有 DEPT 房间。"""
+        await self._reset_tables()
+
+        team = await gtTeamManager.save_team(GtTeam(name="biz_cleanup_team"))
+
+        dept_a = await gtRoomManager.save_room(GtRoom(
+            team_id=team.id, name="dept_a", type=RoomType.GROUP,
+            initial_topic="", max_rounds=5, agent_ids=[], biz_id="x", tags=["DEPT"],
+        ))
+        dept_b = await gtRoomManager.save_room(GtRoom(
+            team_id=team.id, name="dept_b", type=RoomType.GROUP,
+            initial_topic="", max_rounds=5, agent_ids=[], biz_id="y", tags=["DEPT"],
+        ))
+        non_dept = await gtRoomManager.save_room(GtRoom(
+            team_id=team.id, name="non_dept", type=RoomType.GROUP,
+            initial_topic="", max_rounds=5, agent_ids=[], biz_id=None, tags=[],
         ))
 
         await gtRoomManager.delete_rooms_by_biz_ids_not_in(team.id, [])
 
-        assert await gtRoomManager.get_room_by_id(non_dept_null.id) is not None
+        assert await gtRoomManager.get_room_by_id(dept_a.id) is None
+        assert await gtRoomManager.get_room_by_id(dept_b.id) is None
+        assert await gtRoomManager.get_room_by_id(non_dept.id) is not None
 
     async def test_room_manager_save_and_get_room_state(self):
         await self._reset_tables()

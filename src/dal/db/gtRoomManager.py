@@ -170,7 +170,7 @@ async def delete_rooms_by_biz_ids_not_in(team_id: int, biz_ids: list[str]) -> No
     """删除 biz_id 不在指定列表中的部门房间（只删除 tags 包含 'DEPT' 的房间）。"""
     query = GtRoom.delete().where(
         GtRoom.team_id == team_id,
-        GtRoom.tags.contains("DEPT"),  # type: ignore[attr-defined]
+        SQL("EXISTS (SELECT 1 FROM json_each(rooms.tags) WHERE value = 'DEPT')"),
     )
 
     if not biz_ids:

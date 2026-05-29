@@ -184,6 +184,8 @@ async def get_or_create_control_room(team_id: int, agent_id: int) -> tuple[ChatR
             # DB 有记录但内存里没有（如重启后），重新装载
             await _load_room(gt_team=gt_team, gt_room=gt_room)
             room = _rooms_by_id[gt_room.id]
+        # 若房间仍处于 INIT（如热更新时调度闸门关闭导致未激活），补充激活
+        await room.activate_scheduling()
         return room, False
 
     # 不存在则创建新控制房间
@@ -198,9 +200,7 @@ async def get_or_create_control_room(team_id: int, agent_id: int) -> tuple[ChatR
     )
 
     room = _rooms_by_id[saved_room.id]
-    await room.activate_scheduling()
-
-    messageBus.publish(MessageBusTopic.ROOM_ADDED, gt_room=saved_room, team_id=team_id)
+    # create_room 已调用 load_and_activate_room + 发布 ROOM_ADDED，此处仅获取引用
     logger.info(f"自动创建控制房间: room_id={saved_room.id}, agent_id={agent_id}")
 
     return room, True
@@ -253,16 +253,19 @@ async def overwrite_dept_rooms(team_id: int, rooms: Sequence[DeptRoomSpec]) -> N
     行为约定：
     - 以 biz_id 作为幂等键，存在则更新，不存在则创建。
     - 每个目标房间都会同步 Agent 列表为 spec.agent_ids。
-    - 最后会删除 team 下不在本次 biz_id 列表中的 DEPT 房间。
+    - 先删除 team 下不在本次 biz_id 列表中的旧 DEPT 房间，再创建/更新目标房间（避免房间名重复冲突）。
     """
     # 去重并固定“目标态”：同一 biz_id 仅保留最后一条 spec。
     by_biz_id: dict[str, DeptRoomSpec] = {room.biz_id: room for room in rooms}
 
-    # 成员不足 2 人的部门不创建/更新房间（保留在 by_biz_id 之外，后续步骤 3 会清理其旧房间）
+    # 成员不足 2 人的部门不创建/更新房间（保留在 by_biz_id 之外，后续步骤 1 会清理其旧房间）
     by_biz_id = {biz_id: spec for biz_id, spec in by_biz_id.items() if len(spec.agent_ids) >= 2}
 
+    # 1) 先清理不在目标态中的历史 DEPT 房间，避免后续创建时触发房间名唯一约束冲突。
+    await gtRoomManager.delete_rooms_by_biz_ids_not_in(team_id, list(by_biz_id.keys()))
+
     for spec in by_biz_id.values():
-        # 1) 按 biz_id 查找目标房间，不存在则初始化一个待创建对象。
+        # 2) 按 biz_id 查找目标房间，不存在则初始化一个待创建对象。
         existing = await gtRoomManager.get_room_by_biz_id(team_id, spec.biz_id)
         room = existing or GtRoom(
             team_id=team_id,
@@ -293,12 +296,9 @@ async def overwrite_dept_rooms(team_id: int, rooms: Sequence[DeptRoomSpec]) -> N
         room.tags = ["DEPT"]
         room.i18n = spec.i18n or {}
 
-        # 2) 保存房间元信息，再覆盖成员列表。
+        # 3) 保存房间元信息，再覆盖成员列表。
         saved_room = await gtRoomManager.save_room(room)
         await update_room_agents(saved_room.id, spec.agent_ids)
-
-    # 3) 清理不在目标态中的历史 DEPT 房间。
-    await gtRoomManager.delete_rooms_by_biz_ids_not_in(team_id, list(by_biz_id.keys()))
 
 
 async def create_team_rooms(team_id: int, rooms: Sequence[GtRoom]) -> None:
@@ -462,9 +462,9 @@ async def create_room(
     )
     saved = await gtRoomManager.save_room(new_room)
 
-    # 热更新团队
-    from service import teamService
-    await teamService.hot_reload_team(team.name)
+    # 将新房间加载到内存并通知前端（不触发全量 team reload）
+    await load_and_activate_room(saved.id)
+    messageBus.publish(MessageBusTopic.ROOM_ADDED, gt_room=saved, team_id=team_id)
 
     logger.info(f"房间创建: room_id={saved.id}, name={name!r}, type={room_type.name}, agent_ids={agent_ids}")
     return saved

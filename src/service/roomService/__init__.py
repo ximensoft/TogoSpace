@@ -25,6 +25,7 @@ from .core import (
     get_control_room_for_agent,
     upsert_room,
     delete_managed_room,
+    create_room,
     _rooms,
 )
 from constants import RoomType
@@ -57,5 +58,6 @@ __all__ = [
     "get_control_room_for_agent",
     "upsert_room",
     "delete_managed_room",
+    "create_room",
     "_rooms",
 ]
