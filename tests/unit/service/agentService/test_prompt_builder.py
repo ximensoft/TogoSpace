@@ -72,6 +72,7 @@ async def test_build_agent_system_prompt_includes_team_awareness_guide(monkeypat
 
     result = await promptBuilder.build_agent_system_prompt(
         team_id=1,
+        agent_id=1,
         agent_name="alice",
         agent_display_name="Alice",
         template_name="pm",
@@ -110,6 +111,7 @@ async def test_build_agent_system_prompt_skips_team_awareness_when_not_in_team(m
 
     result = await promptBuilder.build_agent_system_prompt(
         team_id=0,
+        agent_id=2,
         agent_name="solo",
         agent_display_name="Solo",
         template_name="helper",
