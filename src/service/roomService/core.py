@@ -409,8 +409,7 @@ async def load_and_activate_room(room_id: int) -> None:
         raise RuntimeError(f"team_id={gt_room.team_id} 不存在，无法加载房间")
     await _load_room(gt_team=gt_team, gt_room=gt_room)
     room = _rooms_by_id[room_id]
-    if room._agent_ids:
-        await room.activate_scheduling()
+    await room.activate_scheduling()
 
 
 async def create_room(

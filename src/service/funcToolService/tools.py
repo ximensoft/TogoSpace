@@ -264,11 +264,6 @@ async def start_chat(
         agent_ids=member_ids,
     )
 
-    # 激活新建房间（与 get_or_create_control_room 保持一致）
-    runtime_room = roomService.get_room(saved.id)
-    if runtime_room is not None:
-        await runtime_room.activate_scheduling()
-
     return {
         "success": True,
         "message": f"已创建与 {normalized} 的单聊房间 {saved.name}。",
