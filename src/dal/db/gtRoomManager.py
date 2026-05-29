@@ -137,7 +137,7 @@ async def delete_rooms_by_ids(room_ids: list[int]) -> int:
     """按 ID 列表删除房间，返回删除数量。"""
     if not room_ids:
         return 0
-    return await GtRoom.delete().where(GtRoom.id.in_(room_ids)).aio_execute()
+    return await GtRoom.delete().where(GtRoom.id.in_(room_ids)).aio_execute()  # type: ignore[attr-defined]
 
 
 async def delete_room(room_id: int) -> None:
