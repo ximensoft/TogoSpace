@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from dal.db import gtTeamManager, gtAgentManager, gtScheculeTaskManager, gtAgentHistoryManager, gtRoomMessageManager, gtRoomManager, gtAgentTaskManager
+from dal.db import gtTeamManager, gtAgentManager, gtScheculeTaskManager, gtAgentHistoryManager, gtRoomMessageManager, gtRoomManager, gtAgentTaskManager, gtAgentActivityManager
 from exception import TogoException
 from model.dbModel.gtAgent import GtAgent
 from model.dbModel.gtDept import GtDept
@@ -216,6 +216,7 @@ async def clear_team_data(team_id: int) -> dict[str, int]:
     agent_tasks_deleted = await gtAgentTaskManager.delete_tasks_by_team(team_id)
     histories_deleted = await gtAgentHistoryManager.delete_history_by_team(team_id)
     messages_deleted = await gtRoomMessageManager.delete_messages_by_team(team_id)
+    activities_deleted = await gtAgentActivityManager.delete_activities_by_team(team_id)
 
     # 3. 删除所有非 DEPT 房间（保留部门树管理的房间）
     all_rooms = await gtRoomManager.get_rooms_by_team(team_id)
@@ -227,6 +228,7 @@ async def clear_team_data(team_id: int) -> dict[str, int]:
         "histories": histories_deleted,
         "messages": messages_deleted,
         "rooms": rooms_deleted,
+        "activities": activities_deleted,
     }
 
     logger.info(f"Team ID={team_id} 数据已清空: {result}")

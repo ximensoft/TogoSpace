@@ -32,6 +32,15 @@ async def update_activity_by_id(activity_id: int, **fields) -> GtAgentActivity:
     return row
 
 
+async def delete_activities_by_team(team_id: int) -> int:
+    """删除团队下所有活动记录。"""
+    return await (
+        GtAgentActivity.delete()
+        .where(GtAgentActivity.team_id == team_id)
+        .aio_execute()
+    )
+
+
 async def list_agent_activities(
     agent_id: int,
     limit: int = 100,
