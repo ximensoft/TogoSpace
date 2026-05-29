@@ -120,6 +120,7 @@ def migrate_database(
     db_path: str | os.PathLike[str],
     *,
     migrations_dir: str | os.PathLike[str] | None = None,
+    up_to: str | None = None,
     verbose: bool = False,
 ) -> list[str]:
     resolved_db_path = resolve_db_path(str(db_path))
@@ -133,6 +134,9 @@ def migrate_database(
         migration_files = list_migration_files(resolved_migrations_dir)
 
         pending = [p for p in migration_files if p.name not in applied_names]
+        if up_to is not None:
+            threshold = int(up_to)
+            pending = [p for p in pending if int(p.name[:4]) < threshold]
         applied_now: list[str] = []
         for migration_file in pending:
             if verbose:
@@ -207,7 +211,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="migration directory path (default: assets/migrate)",
     )
 
-    subparsers.add_parser("migrate", parents=[common], help="apply pending migrations")
+    migrate_parser = subparsers.add_parser("migrate", parents=[common], help="apply pending migrations")
+    migrate_parser.add_argument(
+        "--up-to",
+        default=None,
+        metavar="PREFIX",
+        help="only apply migrations whose filename is less than PREFIX (e.g. 0011)",
+    )
     subparsers.add_parser("status", parents=[common], help="show migration status")
     subparsers.add_parser("init", parents=[common], help="alias of migrate")
     subparsers.add_parser("check", parents=[common], help="check if database is initialized")
@@ -240,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
         applied_now = migrate_database(
             db_path,
             migrations_dir=args.migrations_dir,
+            up_to=args.up_to,
             verbose=True,
         )
         if applied_now:

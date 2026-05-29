@@ -43,3 +43,11 @@ def test_migrate_database_applies_all_pending_and_is_idempotent(tmp_path: Path) 
         assert "success" not in history_columns
     finally:
         conn.close()
+
+
+def test_migrate_database_up_to_normalizes_unpadded_number(tmp_path: Path) -> None:
+    db_path = tmp_path / "data.db"
+    # "11" and "0011" should produce identical results
+    applied_short = db.migrate_database(tmp_path / "a.db", up_to="11")
+    applied_padded = db.migrate_database(tmp_path / "b.db", up_to="0011")
+    assert applied_short == applied_padded
