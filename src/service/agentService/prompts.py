@@ -57,7 +57,7 @@ BASE_PROMPT = '''# 行动指南
 AGENT_IDENTITY_PROMPT = '''
 ## 身份信息
 
-你当前的名字：{agent_name}
+你当前的名字：{agent_name}（ID：{agent_id}）
 你的身份：{template_name}
 
 {dept_context}

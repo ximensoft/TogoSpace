@@ -145,24 +145,28 @@ async def _build_dept_context(team_id: int, agent_name: str) -> str:
         if mid in agent_id_to_name and agent_id_to_name[mid] != agent_name
     ]
 
-    lines = ["---", "组织信息：", f"- 所在部门：{gt_dept.name}（{gt_dept.responsibility}）"]
+    ctx = "---\n组织信息：\n"
+    ctx += f"- 所在部门：{gt_dept.name}\n"
+    if gt_dept.responsibility:
+        ctx += f"- 部门职责：{gt_dept.responsibility}\n"
     if gt_dept.parent_id is not None:
         parent = dept_id_map.get(gt_dept.parent_id)
         if parent is not None:
             parent_manager = agent_id_to_name.get(parent.manager_id, "")
-            lines.append(f"- 上级部门：{parent.name}（主管：{parent_manager}）")
-
-    if len(manager_name) > 0 and manager_name != agent_name:
-        lines.append(f"- 本部门主管：{manager_name}")
-    if len(other_agents) > 0:
-        lines.append(f"- 本部门其他成员：{', '.join(other_agents)}")
-
-    lines.append("---")
-    return "\n".join(lines)
+            ctx += f"- 上级部门：{parent.name}（主管：{parent_manager}，ID：{parent.manager_id}）\n"
+    if manager_name == agent_name:
+        ctx += f"- 你是本部门主管\n"
+    elif manager_name:
+        ctx += f"- 本部门主管：{manager_name}（ID：{gt_dept.manager_id}）\n"
+    if other_agents:
+        ctx += f"- 本部门其他成员：{', '.join(other_agents)}\n"
+    ctx += "---"
+    return ctx
 
 
 async def build_agent_system_prompt(
     team_id: int,
+    agent_id: int,
     agent_name: str,
     agent_display_name: str,
     template_name: str,
@@ -178,6 +182,7 @@ async def build_agent_system_prompt(
         dept_context = await _build_dept_context(team_id, agent_name)
 
     identity_prompt = identity_prompt_tmpl.format(
+        agent_id=agent_id,
         agent_name=agent_display_name,
         template_name=template_display_name,
         dept_context=dept_context,

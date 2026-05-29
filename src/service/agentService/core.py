@@ -130,6 +130,7 @@ async def _load_team_agents(team_id: int, workspace_root: str | None = None) -> 
         driver_config.options["is_root_leader"] = is_root_leader
         full_prompt = await build_agent_system_prompt(
             team_id=team_id,
+            agent_id=gt_agent.id,
             agent_name=agent_name,
             agent_display_name=agent_display_name,
             template_name=template_name,
