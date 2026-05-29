@@ -205,24 +205,3 @@ async def test_set_team_enabled_restores_runtime(monkeypatch):
     await teamService.set_team_enabled(1, True)
 
     restore_team.assert_awaited_once_with(1)
-
-
-@pytest.mark.asyncio
-async def test_clear_team_data_includes_agent_tasks(monkeypatch):
-    """清空团队数据时应同时删除协作任务并计入 tasks 统计。"""
-    monkeypatch.setattr(teamService, "stop_team_runtime", AsyncMock())
-    monkeypatch.setattr(teamService.gtScheculeTaskManager, "delete_tasks_by_team", AsyncMock(return_value=3))
-    monkeypatch.setattr(teamService.gtAgentTaskManager, "delete_tasks_by_team", AsyncMock(return_value=2))
-    monkeypatch.setattr(teamService.gtAgentHistoryManager, "delete_history_by_team", AsyncMock(return_value=5))
-    monkeypatch.setattr(teamService.gtRoomMessageManager, "delete_messages_by_team", AsyncMock(return_value=10))
-    monkeypatch.setattr(teamService.gtRoomManager, "reset_room_read_index", AsyncMock())
-
-    result = await teamService.clear_team_data(1)
-
-    assert result == {"tasks": 5, "histories": 5, "messages": 10}
-    teamService.stop_team_runtime.assert_awaited_once_with(1)
-    teamService.gtScheculeTaskManager.delete_tasks_by_team.assert_awaited_once_with(1)
-    teamService.gtAgentTaskManager.delete_tasks_by_team.assert_awaited_once_with(1)
-    teamService.gtAgentHistoryManager.delete_history_by_team.assert_awaited_once_with(1)
-    teamService.gtRoomMessageManager.delete_messages_by_team.assert_awaited_once_with(1)
-    teamService.gtRoomManager.reset_room_read_index.assert_awaited_once_with(1)

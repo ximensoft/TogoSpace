@@ -133,6 +133,13 @@ async def delete_rooms_by_team(team_id: int) -> None:
     await GtRoom.delete().where(GtRoom.team_id == team_id).aio_execute()
 
 
+async def delete_rooms_by_ids(room_ids: list[int]) -> int:
+    """按 ID 列表删除房间，返回删除数量。"""
+    if not room_ids:
+        return 0
+    return await GtRoom.delete().where(GtRoom.id.in_(room_ids)).aio_execute()
+
+
 async def delete_room(room_id: int) -> None:
     """通过数据库 ID 删除指定 Room。"""
     await GtRoom.delete().where(GtRoom.id == room_id).aio_execute()

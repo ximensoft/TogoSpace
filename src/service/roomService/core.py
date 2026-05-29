@@ -484,6 +484,12 @@ async def upsert_room(
     - 不操作 DEPT 房间（有 'DEPT' tag 的房间由部门树管理）。
     """
     room_type = RoomType.PRIVATE if len(agent_ids) == 2 else RoomType.GROUP
+
+    # 私聊房间自动生成话题
+    if room_type == RoomType.PRIVATE and not initial_topic:
+        agents = await gtAgentManager.get_agents_by_ids(agent_ids)
+        initial_topic = i18nUtil.t("private_room_topic", name1=agents[0].display_name, name2=agents[1].display_name)
+
     # 不允许创建与已有房间成员集合完全相同的房间（排除当前正在更新的房间本身）
     member_set = set(agent_ids)
     existing_rooms = await gtRoomManager.get_rooms_by_team(team_id)

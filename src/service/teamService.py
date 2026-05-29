@@ -217,13 +217,16 @@ async def clear_team_data(team_id: int) -> dict[str, int]:
     histories_deleted = await gtAgentHistoryManager.delete_history_by_team(team_id)
     messages_deleted = await gtRoomMessageManager.delete_messages_by_team(team_id)
 
-    # 3. 重置房间的 agent_read_index
-    await gtRoomManager.reset_room_read_index(team_id)
+    # 3. 删除所有非 DEPT 房间（保留部门树管理的房间）
+    all_rooms = await gtRoomManager.get_rooms_by_team(team_id)
+    non_dept_ids = [r.id for r in all_rooms if r.id is not None and "DEPT" not in (r.tags or [])]
+    rooms_deleted = await gtRoomManager.delete_rooms_by_ids(non_dept_ids) if non_dept_ids else 0
 
     result = {
         "tasks": tasks_deleted + agent_tasks_deleted,
         "histories": histories_deleted,
         "messages": messages_deleted,
+        "rooms": rooms_deleted,
     }
 
     logger.info(f"Team ID={team_id} 数据已清空: {result}")

@@ -204,14 +204,12 @@ async def get_room_info(room_name: Optional[str] = None, _context: ToolCallConte
 
 async def start_chat(
     agent_name: str,
-    initial_topic: str = "",
     _context: ToolCallContext = None,
 ) -> dict:
     """与指定 Agent 发起单聊（私聊）。若两人之间已有房间则直接返回，不重复创建。
 
     Args:
         agent_name: 要发起对话的目标 Agent 名称。
-        initial_topic: 对话初始话题，可选。
     """
     ok, team_id = _require_team_context(_context)
     if not ok:
@@ -260,13 +258,11 @@ async def start_chat(
     self_name = id_to_name.get(self_id, str(self_id))
     room_name = "_".join(sorted([self_name, normalized]))
 
-    saved = await roomService.upsert_room(
+    saved = await roomService.create_room(
         team_id=team_id,
         name=room_name,
         agent_ids=member_ids,
-        initial_topic=initial_topic,
     )
-    await roomService.load_and_activate_room(saved.id)
 
     return {
         "success": True,
