@@ -158,6 +158,50 @@ class TestAutoSchedule(_CollabTaskCase):
         agent_task.status = TaskStatus.DONE
         await gtAgentTaskManager.update_task(agent_task, [GtAgentTask.status])
 
+    async def test_reviewing_task_auto_scheduled_for_manager_after_turn_completion(self):
+        """consume 完成 ROOM_MESSAGE turn 后，若有待自己验收的 REVIEWING 任务，应自动创建 TODO_TASK 调度。"""
+        await self.create_room(TEAM, "review_room", ["alice", "bob"])
+        room = roomService.get_room_by_key(f"review_room@{TEAM}")
+        team, alice_db, alice = await self._get_alice()
+        bob_db = await gtAgentManager.get_agent(team.id, "bob")
+
+        review_task = GtAgentTask(
+            team_id=team.id,
+            title="待 Alice 验收的任务",
+            description="Bob 已提交验收",
+            assignee_id=bob_db.id,
+            creator_id=bob_db.id,
+            manager_id=alice_db.id,
+            status=TaskStatus.REVIEWING,
+        )
+        review_task = await gtAgentTaskManager.create_task(review_task)
+
+        room_sched = await gtScheculeTaskManager.create_task(
+            alice_db.id,
+            AgentTaskType.ROOM_MESSAGE,
+            {"room_id": room.room_id},
+        )
+        await room.activate_scheduling()
+        await room.add_message(bob_db.id, "请帮我验收一下刚提交的任务")
+
+        with self.patch_infer(responses=[
+            {"tool_calls": [{"name": "finish_action", "arguments": {"confirm_no_need_talk": True}}]},
+            {"tool_calls": [{"name": "update_task", "arguments": {"task_id": review_task.id, "status": "DONE", "result": "验收通过"}}]},
+            {"tool_calls": [{"name": "finish_action", "arguments": {}}]},
+        ]):
+            await alice.task_consumer.consume()
+
+        completed_sched = await gtScheculeTaskManager.get_task(room_sched.id)
+        assert completed_sched.status == AgentTaskStatus.COMPLETED
+
+        all_scheds = list(await GtScheculeTask.select().where(
+            GtScheculeTask.agent_id == alice_db.id,
+            GtScheculeTask.task_type == AgentTaskType.TODO_TASK,
+        ).aio_execute())
+        assert any(t.task_data.get("agent_task_id") == review_task.id for t in all_scheds), (
+            "ROOM_MESSAGE turn 完成后，应自动创建待自己验收任务的协作调度"
+        )
+
     async def test_collaboration_task_not_duplicated_idempotent(self):
         """若已存在 PENDING 的 TODO_TASK 调度，重复触发不应创建第二条。"""
         team, alice_db, _ = await self._get_alice()
@@ -192,6 +236,47 @@ class TestAutoSchedule(_CollabTaskCase):
         await gtScheculeTaskManager.update_task_status(sched1.id, AgentTaskStatus.CANCELLED)
         agent_task.status = TaskStatus.DONE
         await gtAgentTaskManager.update_task(agent_task, [GtAgentTask.status])
+
+    async def test_reviewing_task_for_other_manager_not_scheduled(self):
+        """别人的 REVIEWING 任务不应被当前 agent 自动捞起。"""
+        team, alice_db, alice = await self._get_alice()
+        bob_db = await gtAgentManager.get_agent(team.id, "bob")
+
+        review_task = GtAgentTask(
+            team_id=team.id,
+            title="Bob 的验收任务",
+            description="不应被 Alice 自动处理",
+            assignee_id=bob_db.id,
+            creator_id=bob_db.id,
+            manager_id=bob_db.id,
+            status=TaskStatus.REVIEWING,
+        )
+        review_task = await gtAgentTaskManager.create_task(review_task)
+
+        before_scheds = list(
+            await GtScheculeTask.select()
+            .where(
+                GtScheculeTask.agent_id == alice_db.id,
+                GtScheculeTask.task_type == AgentTaskType.TODO_TASK,
+                GtScheculeTask.status == AgentTaskStatus.PENDING,
+            )
+            .aio_execute()
+        )
+
+        await alice.task_consumer._check_and_schedule_collaboration_tasks()
+
+        after_scheds = list(
+            await GtScheculeTask.select()
+            .where(
+                GtScheculeTask.agent_id == alice_db.id,
+                GtScheculeTask.task_type == AgentTaskType.TODO_TASK,
+                GtScheculeTask.status == AgentTaskStatus.PENDING,
+            )
+            .aio_execute()
+        )
+
+        assert len(after_scheds) == len(before_scheds), "别人的 REVIEWING 任务不应为当前 agent 创建调度"
+        assert not any(t.task_data.get("agent_task_id") == review_task.id for t in after_scheds)
 
     async def test_no_schedule_when_no_active_collab_task(self):
         """无 TODO/IN_PROGRESS 协作任务时，_check_and_schedule_collaboration_tasks 不应创建调度。"""

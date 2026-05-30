@@ -59,6 +59,24 @@ def test_build_turn_begin_prompt_yaml_format():
     assert "当前轮到你行动" in result
 
 
+def test_build_todo_task_turn_prompt_for_normal_task():
+    result = promptBuilder.build_todo_task_turn_prompt("写周报", "整理本周进展", "IN_PROGRESS")
+    assert "你当前被唤醒以处理以下任务" in result
+    assert "请直接开始工作" in result
+    assert "验收不通过" not in result
+    assert "ON_HOLD" in result
+    assert "CANCELLED" in result
+
+
+def test_build_todo_task_turn_prompt_for_review_task():
+    result = promptBuilder.build_todo_task_turn_prompt("验收功能", "检查交付结果", "REVIEWING")
+    assert "你当前被唤醒以处理以下验收任务" in result
+    assert "请直接开始验收" in result
+    assert "验收不通过" in result
+    assert "IN_PROGRESS" in result
+    assert "其他少见情况" in result
+
+
 
 @pytest.mark.asyncio
 async def test_build_agent_system_prompt_includes_team_awareness_guide(monkeypatch):

@@ -954,11 +954,9 @@ async def finish_action(_context: ToolCallContext = None, confirm_no_need_talk: 
         logger.warning("结束行动失败，上下文未设置")
         return {"success": False, "message": "当前没有激活的上下文。"}
 
-    # 协作任务模式：按任务类型判断，检查被唤醒的任务是否已处理
-    if (
-        _context.schedule_task is not None
-        and _context.schedule_task.task_type == AgentTaskType.TODO_TASK
-    ):
+    task_type = _context.schedule_task.task_type if _context.schedule_task is not None else AgentTaskType.ROOM_MESSAGE
+
+    if task_type == AgentTaskType.TODO_TASK:
         agent_task_id = _context.schedule_task.task_data.get("agent_task_id")
         agent_task = await gtAgentTaskManager.get_task(agent_task_id) if agent_task_id else None
         if agent_task is not None and agent_task.status == TaskStatus.TODO:
@@ -977,35 +975,36 @@ async def finish_action(_context: ToolCallContext = None, confirm_no_need_talk: 
         logger.info(f"Agent 结束协作任务行动: agent_id={_context.agent_id}")
         return {"success": True, "message": "已结束了本轮行动."}
 
-    if _context.chat_room is None:
-        logger.warning("结束行动失败，聊天室上下文未设置")
-        return {"success": False, "message": "当前没有激活的房间上下文。"}
+    elif task_type == AgentTaskType.ROOM_MESSAGE:
+        if _context.chat_room is None:
+            logger.warning("结束行动失败，聊天室上下文未设置")
+            return {"success": False, "message": "当前没有激活的房间上下文。"}
 
-    if confirm_no_need_talk and _context.chat_room.current_turn_has_content:
-        return {
-            "success": False,
-            "message": "finish_action 失败：你本轮已经通过 send_chat_msg 发过消息了，不需要设置 confirm_no_need_talk=true。请直接调用 finish_action（不带任何参数）结束行动。",
-        }
+        if confirm_no_need_talk and _context.chat_room.current_turn_has_content:
+            return {
+                "success": False,
+                "message": "finish_action 失败：你本轮已经通过 send_chat_msg 发过消息了，不需要设置 confirm_no_need_talk=true。请直接调用 finish_action（不带任何参数）结束行动。",
+            }
 
-    if not confirm_no_need_talk and not _context.chat_room.current_turn_has_content:
-        room_name = _context.chat_room.name
-        return {
-            "success": False,
-            "message": (
-                f"finish 失败，你本次行动中，未在收到消息的房间【{room_name}】发言。\n\n"
-                "1. 如果你忘记发言（或者是不小心用直接输出替代了向房间发言），那么请调用 send_chat_msg 发送消息。\n"
-                "2. 如果你确认不需要发言，请设置 confirm_no_need_talk=true 重新调用 finish_action。"
-            ),
-        }
+        if not confirm_no_need_talk and not _context.chat_room.current_turn_has_content:
+            room_name = _context.chat_room.name
+            return {
+                "success": False,
+                "message": (
+                    f"finish 失败，你本次行动中，未在收到消息的房间【{room_name}】发言。\n\n"
+                    "1. 如果你忘记发言（或者是不小心用直接输出替代了向房间发言），那么请调用 send_chat_msg 发送消息。\n"
+                    "2. 如果你确认不需要发言，请设置 confirm_no_need_talk=true 重新调用 finish_action。"
+                ),
+            }
 
-    logger.info(f"Agent 结束行动: agent_id={_context.agent_id}")
-    ok = await _context.chat_room.handle_finish_request(_context.agent_id)
+        logger.info(f"Agent 结束行动: agent_id={_context.agent_id}")
+        ok = await _context.chat_room.handle_finish_request(_context.agent_id)
 
-    if not ok:
-        current_id = _context.chat_room.get_current_turn_agent_id()
-        logger.warning(f"finish_turn 被房间拒绝（发言位不匹配），但仍视为行动结束: agent_id={_context.agent_id}, current_turn_id={current_id}, room={_context.chat_room.key}")
+        if not ok:
+            current_id = _context.chat_room.get_current_turn_agent_id()
+            logger.warning(f"finish_turn 被房间拒绝（发言位不匹配），但仍视为行动结束: agent_id={_context.agent_id}, current_turn_id={current_id}, room={_context.chat_room.key}")
 
-    return {"success": True, "message": "已结束了本轮行动."}
+        return {"success": True, "message": "已结束了本轮行动."}
 
 
 
@@ -1130,4 +1129,3 @@ async def list_tasks(
         status=status,
         limit=limit,
     )
-

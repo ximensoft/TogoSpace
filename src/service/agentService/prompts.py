@@ -120,3 +120,27 @@ LANGUAGE_CONTEXT_PROMPT = '''
 - 优先跟随上一条 Agent/Operator 消息的正文语言
 - 系统通知不参与语言判断
 - 如果上一条 Agent/Operator 消息不存在，则使用当前系统语言设置'''
+
+TODO_TASK_TURN_PROMPT_TEMPLATE = '''【任务通知】
+你当前被唤醒以处理以下任务：
+- 标题: {title}
+- 描述: {description}
+- 状态: {status_value}
+
+请直接开始工作。
+- 若完成，请调用 `update_task` 将状态改为 DONE 并填写结果。
+- 若需暂缓（本轮无法完成），请调用 `update_task` 将状态改为 ON_HOLD。
+- 若需取消，请调用 `update_task` 将状态改为 CANCELLED。
+- 无论成败，完成后必须调用 `finish_action`。'''
+
+REVIEW_TASK_TURN_PROMPT_TEMPLATE = '''【任务通知】
+你当前被唤醒以处理以下验收任务：
+- 标题: {title}
+- 描述: {description}
+- 状态: {status_value}
+
+请直接开始验收。
+- 若验收通过，请调用 `update_task` 将状态改为 DONE 并填写结果。
+- 若验收不通过，请调用 `update_task` 将状态改回 IN_PROGRESS，并在 result 中写明打回原因。
+- 其他少见情况：必要时也可改为 ON_HOLD 或 CANCELLED。
+- 无论成败，完成后必须调用 `finish_action`。'''

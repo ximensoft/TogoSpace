@@ -84,7 +84,7 @@ class AgentTaskConsumer:
         return True
 
     async def _check_and_schedule_collaboration_tasks(self) -> None:
-        """扫描协作任务表，若有 TODO/IN_PROGRESS 任务且无对应 PENDING 调度记录，则自动创建。"""
+        """扫描协作任务表，若有待处理任务且无对应 PENDING 调度记录，则自动创建。"""
         agent_task = await gtAgentTaskManager.get_first_active_task(self.gt_agent.id)
         if agent_task is None:
             return
@@ -178,4 +178,3 @@ class AgentTaskConsumer:
                 if has_pending:
                     logger.info(f"Agent 任务收尾时检测到待处理任务，自动续起消费: {self.gt_agent.name}(agent_id={self.gt_agent.id})")
                     self.start()
-
