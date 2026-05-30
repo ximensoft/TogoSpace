@@ -77,6 +77,7 @@ jobs:
           --abi cp311 \
           --only-binary :all: \
           --no-deps \
+          --target "$SITE_PACKAGES" \
           -r requirements.txt
 
         "$VENV/bin/pip" install \
@@ -85,6 +86,7 @@ jobs:
           --abi cp311 \
           --only-binary :all: \
           --no-deps \
+          --target "$SITE_PACKAGES" \
           pyinstaller
 
         # Step 2: 安装缺失的依赖（无 x86_64 wheel 的纯 Python 包 → 源码安装）
