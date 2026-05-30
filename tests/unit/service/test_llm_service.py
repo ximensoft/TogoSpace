@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 import pytest
 
@@ -143,8 +143,8 @@ async def test_infer_stream_passes_request_id(monkeypatch):
 
     assert result.ok is True
     fake_send_request_stream.assert_awaited_once()
-    assert fake_send_request_stream.await_args.args[0].tool_choice == "none"
-    assert fake_send_request_stream.await_args.args[0].prompt_cache is True
+    assert fake_send_request_stream.await_args.kwargs["request"].tool_choice == "none"
+    assert fake_send_request_stream.await_args.kwargs["request"].prompt_cache is True
     assert isinstance(fake_send_request_stream.await_args.kwargs["request_id"], str)
     assert len(fake_send_request_stream.await_args.kwargs["request_id"]) == 32
     assert result.request_id == fake_send_request_stream.await_args.kwargs["request_id"]
@@ -182,7 +182,7 @@ async def test_infer_stream_strips_required_tool_choice_when_reasoning_effort_en
 
     assert result.ok is True
     fake_send_request_stream.assert_awaited_once()
-    request = fake_send_request_stream.await_args.args[0]
+    request = fake_send_request_stream.await_args.kwargs["request"]
     assert request.tool_choice is None
     assert request.provider_params["reasoning_effort"] == "high"
 
@@ -215,7 +215,7 @@ async def test_infer_uses_context_prompt_cache_policy_when_provided(monkeypatch)
 
     assert result.ok is True
     fake_send_request_non_stream.assert_awaited_once()
-    request = fake_send_request_non_stream.await_args.args[0]
+    request = fake_send_request_non_stream.await_args.kwargs["request"]
     assert request.prompt_cache is False
 
 
@@ -248,7 +248,7 @@ async def test_infer_uses_config_model_when_agent_model_is_none(monkeypatch):
 
     assert result.ok is True
     fake_send_request_non_stream.assert_awaited_once()
-    request = fake_send_request_non_stream.await_args.args[0]
+    request = fake_send_request_non_stream.await_args.kwargs["request"]
     assert request.model == "configured-model"
 
 
@@ -281,7 +281,7 @@ async def test_infer_uses_agent_model_when_provided(monkeypatch):
 
     assert result.ok is True
     fake_send_request_non_stream.assert_awaited_once()
-    request = fake_send_request_non_stream.await_args.args[0]
+    request = fake_send_request_non_stream.await_args.kwargs["request"]
     assert request.model == "agent-specific-model"
 
 
@@ -314,7 +314,7 @@ async def test_infer_stream_uses_config_model_when_agent_model_is_none(monkeypat
 
     assert result.ok is True
     fake_send_request_stream.assert_awaited_once()
-    request = fake_send_request_stream.await_args.args[0]
+    request = fake_send_request_stream.await_args.kwargs["request"]
     assert request.model == "configured-model"
 
 
@@ -349,8 +349,91 @@ async def test_infer_passes_provider_params(monkeypatch):
 
     assert result.ok is True
     fake_send_request_non_stream.assert_awaited_once()
-    request = fake_send_request_non_stream.await_args.args[0]
+    request = fake_send_request_non_stream.await_args.kwargs["request"]
     assert request.provider_params == {
         "reasoning_effort": "high",
         "parallel_tool_calls": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_infer_retries_with_exponential_backoff_until_success(monkeypatch):
+    attempts = {"count": 0}
+    sleep_mock = AsyncMock()
+
+    async def _fake_send_request_non_stream(request, url, api_key, custom_llm_provider=None, extra_headers=None, request_id=""):
+        attempts["count"] += 1
+        if attempts["count"] < 4:
+            raise RuntimeError(f"temporary failure {attempts['count']}")
+        return _build_response("retry-ok")
+
+    monkeypatch.setattr(configUtil, "get_app_config", lambda: AppConfig(setting=SettingConfig(
+        default_llm_server="svc",
+        llm_services=[
+            {
+                "name": "svc",
+                "enable": True,
+                "base_url": "http://localhost/v1/chat/completions",
+                "api_key": "key-123",
+                "type": "openai-compatible",
+            }
+        ],
+    )))
+    monkeypatch.setattr(llmService.llmApiUtil, "send_request_non_stream", _fake_send_request_non_stream)
+    monkeypatch.setattr(llmService.asyncio, "sleep", sleep_mock)
+
+    ctx = GtCoreAgentDialogContext(
+        system_prompt="system prompt",
+        messages=[llmApiUtil.OpenAIMessage.text(llmApiUtil.OpenaiApiRole.USER, "hello")],
+    )
+
+    result = await llmService.infer(None, ctx)
+
+    assert result.ok is True
+    assert result.response is not None
+    assert result.response.choices[0].message.content == "retry-ok"
+    assert attempts["count"] == 4
+    assert sleep_mock.await_args_list == [call(2), call(4), call(8)]
+
+
+@pytest.mark.asyncio
+async def test_infer_stream_retries_up_to_limit_then_returns_failure(monkeypatch):
+    sleep_mock = AsyncMock()
+    fake_send_request_stream = AsyncMock(side_effect=RuntimeError("stream temporary failure"))
+
+    monkeypatch.setattr(configUtil, "get_app_config", lambda: AppConfig(setting=SettingConfig(
+        default_llm_server="svc",
+        llm_services=[
+            {
+                "name": "svc",
+                "enable": True,
+                "base_url": "http://localhost/v1/chat/completions",
+                "api_key": "key-123",
+                "type": "openai-compatible",
+            }
+        ],
+    )))
+    monkeypatch.setattr(llmService.llmApiUtil, "send_request_stream", fake_send_request_stream)
+    monkeypatch.setattr(llmService.asyncio, "sleep", sleep_mock)
+
+    ctx = GtCoreAgentDialogContext(
+        system_prompt="system prompt",
+        messages=[llmApiUtil.OpenAIMessage.text(llmApiUtil.OpenaiApiRole.USER, "hello")],
+    )
+
+    result = await llmService.infer_stream(None, ctx)
+
+    assert result.ok is False
+    assert result.response is None
+    assert isinstance(result.error, RuntimeError)
+    assert str(result.error) == "stream temporary failure"
+    assert fake_send_request_stream.await_count == 8
+    assert sleep_mock.await_args_list == [
+        call(2),
+        call(4),
+        call(8),
+        call(16),
+        call(32),
+        call(32),
+        call(32),
+    ]

@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import asdict, dataclass
 from collections.abc import Awaitable, Callable
 import json
@@ -19,6 +20,8 @@ _TYPE_TO_PROVIDER = {
 }
 
 logger = logging.getLogger(__name__)
+
+_INFER_RETRY_DELAYS_SECONDS = (2, 4, 8, 16, 32, 32, 32)
 
 
 @dataclass
@@ -94,6 +97,35 @@ def _build_request(
     return apply_llm_request_rules(request)
 
 
+async def _send_with_retry(
+    send_request: Callable[..., Awaitable[llmApiUtil.OpenAIResponse]],
+    args: tuple,
+    kwargs: dict,
+) -> llmApiUtil.OpenAIResponse:
+    last_error: Exception | None = None
+    total_attempts = len(_INFER_RETRY_DELAYS_SECONDS) + 1
+    request_id = kwargs.get("request_id", "")
+    request_name = getattr(send_request, "__name__", repr(send_request))
+
+    for attempt in range(1, total_attempts + 1):
+        try:
+            return await send_request(*args, **kwargs)
+        except Exception as e:
+            last_error = e
+            if attempt >= total_attempts:
+                raise
+
+            delay = _INFER_RETRY_DELAYS_SECONDS[attempt - 1]
+            logger.warning(
+                "LLM infer retry scheduled: request_id=%s, request=%s, attempt=%d/%d, retry_in=%ss, error=%s",
+                request_id, request_name, attempt, total_attempts, delay, e,
+            )
+            await asyncio.sleep(delay)
+
+    assert last_error is not None
+    raise last_error
+
+
 async def infer(model: str | None, ctx: GtCoreAgentDialogContext) -> InferResult:
     """根据 GtCoreAgentDialogContext 组装请求并调用 LLM 推理接口，统一返回成功/失败结果。"""
     request_id = uuid.uuid4().hex
@@ -115,13 +147,17 @@ async def infer(model: str | None, ctx: GtCoreAgentDialogContext) -> InferResult
             request_id, False, resolved_model, resolved_provider, len(request.messages), len(ctx.tools or []), request.tool_choice,
             ctx.prompt_cache, list(applied_rules),
         )
-        response = await llmApiUtil.send_request_non_stream(
-            request,
-            llm_config.base_url,
-            llm_config.api_key,
-            custom_llm_provider=resolved_provider,
-            extra_headers=llm_config.extra_headers,
-            request_id=request_id,
+        response = await _send_with_retry(
+            send_request=llmApiUtil.send_request_non_stream,
+            args=(),
+            kwargs={
+                "request": request,
+                "url": llm_config.base_url,
+                "api_key": llm_config.api_key,
+                "custom_llm_provider": resolved_provider,
+                "extra_headers": llm_config.extra_headers,
+                "request_id": request_id,
+            },
         )
         logger.info(
             "LLM infer success: request_id=%s, stream=%s, upstream_request_id=%s, usage=%s",
@@ -213,14 +249,18 @@ async def infer_stream(
                 if inspect.isawaitable(result):
                     await result
 
-        response = await llmApiUtil.send_request_stream(
-            request,
-            llm_config.base_url,
-            llm_config.api_key,
-            custom_llm_provider=resolved_provider,
-            extra_headers=llm_config.extra_headers,
-            on_chunk=_on_chunk,
-            request_id=request_id,
+        response = await _send_with_retry(
+            send_request=llmApiUtil.send_request_stream,
+            args=(),
+            kwargs={
+                "request": request,
+                "url": llm_config.base_url,
+                "api_key": llm_config.api_key,
+                "custom_llm_provider": resolved_provider,
+                "extra_headers": llm_config.extra_headers,
+                "on_chunk": _on_chunk,
+                "request_id": request_id,
+            },
         )
         logger.info(
             "LLM infer success: request_id=%s, stream=%s, upstream_request_id=%s, usage=%s",
