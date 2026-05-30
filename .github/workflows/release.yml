@@ -44,11 +44,11 @@ jobs:
       with:
         python-version: '3.11'
 
-    # ── x86_64: 通过 Rosetta 2 + pip --platform 强制下载 x86_64 wheels ──
+    # ── x86_64: 通过 Rosetta 2 + uv 跨平台安装 x86_64 依赖 ──
     - name: Set up x86_64 venv via Rosetta 2
       if: matrix.arch == 'x86_64'
       run: |
-        echo "🔧 Setting up x86_64 Python via Rosetta 2..."
+        echo "🔧 Setting up x86_64 Python via Rosetta 2 + uv..."
 
         # 验证 setup-python 安装的 Python 是 universal binary
         PYTHON_BIN=$(which python3)
@@ -59,45 +59,31 @@ jobs:
         arch -x86_64 python3 -m venv "$RUNNER_TEMP/x86_64-venv"
         VENV="$RUNNER_TEMP/x86_64-venv"
 
-        # 升级 pip（纯 Python，不受平台影响）
-        "$VENV/bin/python" -m pip install --upgrade pip
+        # 安装 uv（快速包管理器，原生支持 --python-platform 跨平台安装）
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        UV="$HOME/.local/bin/uv"
 
-        # 获取 site-packages 路径
-        SITE_PACKAGES=$("$VENV/bin/python" -c "import site; print(site.getsitepackages()[0])")
-        echo "site-packages: $SITE_PACKAGES"
-
-        # === 两步安装法 ===
-        # Step 1: 强制下载 x86_64 binary wheels（无依赖解析）
-        # Step 2: 普通安装填充剩余包（源码构建，跨平台通用）
-        
-        # Step 1: 下载有 x86_64 wheel 的包（--no-deps 跳过依赖解析）
-        # 注意：不使用 --only-binary :all:，否则 pip 无法为仅有 py3-none-any
-        # wheel 的包（如 claude-agent-sdk）找到匹配
-        "$VENV/bin/pip" install \
-          --platform macosx_10_15_x86_64 \
+        # 使用 uv 一键安装所有依赖（自动处理 wheel/sdist 回退）
+        # --python-platform x86_64-apple-darwin：下载 x86_64 wheel，无则从源码编译
+        # --python-version 3.11：指定目标 Python 版本
+        # --python：指定目标 Python 解释器（x86_64 venv）
+        "$UV" pip install \
+          --python "$VENV/bin/python3" \
           --python-version 3.11 \
-          --abi cp311 \
-          --no-deps \
-          --target "$SITE_PACKAGES" \
+          --python-platform x86_64-apple-darwin \
           -r requirements.txt
 
-        "$VENV/bin/pip" install \
-          --platform macosx_10_15_x86_64 \
+        "$UV" pip install \
+          --python "$VENV/bin/python3" \
           --python-version 3.11 \
-          --abi cp311 \
-          --no-deps \
-          --target "$SITE_PACKAGES" \
+          --python-platform x86_64-apple-darwin \
           pyinstaller
-
-        # Step 2: 安装缺失的依赖（--no-binary :all: 强制源码构建，确保 x86_64）
-        # 已安装的 x86_64 包会被跳过（already satisfied）
-        "$VENV/bin/pip" install --no-binary :all: -r requirements.txt
-        "$VENV/bin/pip" install --no-binary :all: pyinstaller
 
         # 验证架构
         echo "=== Architecture verification ==="
         "$VENV/bin/python" --version
         "$VENV/bin/python" -c "import platform; print(f'Arch: {platform.machine()}')"
+        SITE_PACKAGES=$("$VENV/bin/python" -c "import site; print(site.getsitepackages()[0])")
         # 验证 Pillow 是否为 x86_64
         "$VENV/bin/python" -c "
         from PIL import features
