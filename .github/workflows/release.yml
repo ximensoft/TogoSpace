@@ -39,37 +39,26 @@ jobs:
         submodules: recursive
         lfs: true
 
-    # ── arm64: 常规 Python 安装 ──
-    - name: Set up Python 3.11 (arm64)
-      if: matrix.arch == 'arm64'
+    - name: Set up Python 3.11
       uses: actions/setup-python@v6
       with:
         python-version: '3.11'
 
-    # ── x86_64: 通过 Rosetta 2 安装 x86_64 Python ──
-    - name: Set up x86_64 Python via Rosetta 2
+    - name: Set up x86_64 venv via Rosetta 2
       if: matrix.arch == 'x86_64'
       run: |
         echo "🔧 Setting up x86_64 Python via Rosetta 2..."
 
-        # 安装 Python.org universal2 安装包（包含 arm64 + x86_64 双架构）
-        PYTHON_VERSION="3.11.11"
-        curl -fSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-macos11.pkg" \
-          -o /tmp/python.pkg
-        sudo installer -pkg /tmp/python.pkg -target /
-        rm /tmp/python.pkg
-
-        PYTHON_FRAMEWORK="/Library/Frameworks/Python.framework/Versions/3.11/bin"
-
-        # 验证 universal binary
-        echo "=== Universal binary check ==="
-        lipo -info "$PYTHON_FRAMEWORK/python3.11" || true
+        # 验证 setup-python 安装的 Python 是 universal binary
+        PYTHON_BIN=$(which python3)
+        echo "Python: $PYTHON_BIN"
+        lipo -info "$PYTHON_BIN"
 
         # 用 arch -x86_64 创建 x86_64 虚拟环境
-        arch -x86_64 "$PYTHON_FRAMEWORK/python3.11" -m venv "$RUNNER_TEMP/x86_64-venv"
+        arch -x86_64 python3 -m venv "$RUNNER_TEMP/x86_64-venv"
         VENV="$RUNNER_TEMP/x86_64-venv"
 
-        # 在 x86_64 环境中安装依赖（pip 会下载 x86_64 wheels）
+        # 在 x86_64 环境中安装依赖（pip 会自动下载 x86_64 wheels）
         "$VENV/bin/python" -m pip install --upgrade pip
         "$VENV/bin/pip" install -r requirements.txt
         "$VENV/bin/pip" install pyinstaller
@@ -78,7 +67,6 @@ jobs:
         echo "=== Architecture verification ==="
         "$VENV/bin/python" --version
         "$VENV/bin/python" -c "import platform; print(f'Arch: {platform.machine()}')"
-        "$VENV/bin/python" -c "import PIL; print(f'PIL location: {PIL.__file__}')"
 
         # 将 x86_64 venv 加入 PATH（后续步骤自动使用）
         echo "$VENV/bin" >> $GITHUB_PATH
