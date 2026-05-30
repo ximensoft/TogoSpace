@@ -287,7 +287,7 @@ async def test_infer_overflow_after_precheck_no_retry():
         patch(_ESTIMATE_PATCH, side_effect=[TRIGGER_TOKENS + 100, 5000]),
         patch(_ACTIVITY_PATCH, _mock_activity_service()),
     ):
-        with pytest.raises(RuntimeError, match="LLM 推理失败"):
+        with pytest.raises(RuntimeError, match="context_length_exceeded"):
             await runner._infer_to_item(output_item, tools=[])
 
     history.insert_compact_summary.assert_awaited_once()
@@ -305,7 +305,7 @@ async def test_infer_non_overflow_failure_raises():
         patch(_ESTIMATE_PATCH, return_value=5000),
         patch(_ACTIVITY_PATCH, _mock_activity_service()),
     ):
-        with pytest.raises(RuntimeError, match="LLM 推理失败"):
+        with pytest.raises(RuntimeError, match="rate limit exceeded"):
             await runner._infer_to_item(output_item, tools=[])
 
     history.insert_compact_summary.assert_not_awaited()

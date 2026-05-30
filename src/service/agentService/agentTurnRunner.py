@@ -569,9 +569,7 @@ class AgentTurnRunner:
 
                 if infer_result.ok is False or infer_result.response is None:
                     error_message = infer_result.error_message or "unknown inference error"
-                    if overflow_retry:
-                        raise RuntimeError(f"LLM 推理失败(overflow retry): agent_id={self.gt_agent.id}, error={error_message}") from infer_result.error
-                    raise RuntimeError(f"LLM 推理失败: agent_id={self.gt_agent.id}, error={error_message}") from infer_result.error
+                    raise RuntimeError(error_message) from infer_result.error
 
             usage = infer_result.usage
             choice = infer_result.response.choices[0]
