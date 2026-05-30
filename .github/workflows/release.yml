@@ -59,6 +59,18 @@ jobs:
         arch -x86_64 python3 -m venv "$RUNNER_TEMP/x86_64-venv"
         VENV="$RUNNER_TEMP/x86_64-venv"
 
+        # 将 venv 中的 universal Python 替换为纯 x86_64 binary
+        # 这样 sys.executable 和所有子进程都会以 x86_64 模式运行
+        PYTHON_REAL=$(readlink -f "$VENV/bin/python3")
+        cp "$PYTHON_REAL" "$VENV/bin/python3_universal"
+        lipo -thin x86_64 "$VENV/bin/python3_universal" -output "$VENV/bin/python3_x86_64"
+        rm "$VENV/bin/python3"
+        mv "$VENV/bin/python3_x86_64" "$VENV/bin/python3"
+        chmod +x "$VENV/bin/python3"
+        rm "$VENV/bin/python3_universal"
+        echo "Python3 binary (x86_64-only):"
+        lipo -info "$VENV/bin/python3"
+
         # 安装 uv（快速包管理器，原生支持 --python-platform 跨平台安装）
         curl -LsSf https://astral.sh/uv/install.sh | sh
         UV="$HOME/.local/bin/uv"
