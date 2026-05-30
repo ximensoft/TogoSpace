@@ -237,10 +237,10 @@ async def test_update_task_non_assignee_cannot_update(task_manager_mock):
 
 @pytest.mark.asyncio
 async def test_update_task_invalid_state_transition_returns_failure(task_manager_mock):
-    task = _build_task(status=TaskStatus.TODO, assignee_id=11, creator_id=11)
+    task = _build_task(status=TaskStatus.DONE, assignee_id=11, creator_id=11)
     task_manager_mock.get_task = AsyncMock(return_value=task)
 
-    result = await taskService.update_task(team_id=1, caller_id=11, task_id=1, status="DONE")
+    result = await taskService.update_task(team_id=1, caller_id=11, task_id=1, status="TODO")
 
     assert result["success"] is False
     assert result["error_code"] == "invalid_transition"
