@@ -6,6 +6,7 @@ import threading
 import traceback
 
 import aiohttp
+import async_timeout
 import pytest
 
 from ...base import ServiceTestCase
@@ -56,7 +57,7 @@ class TestWsController(_ApiServiceCase):
                         ) as resp:
                             assert resp.status == 200
 
-                        async with asyncio.timeout(5):
+                        async with async_timeout.timeout(5):
                             async for msg in ws:
                                 if msg.type == aiohttp.WSMsgType.TEXT:
                                     data = json.loads(msg.data)
@@ -127,7 +128,7 @@ class TestWsController(_ApiServiceCase):
                     assert resp.status == 200
 
                 matched = None
-                async with asyncio.timeout(8):
+                async with async_timeout.timeout(8):
                     async for msg in ws:
                         if msg.type != aiohttp.WSMsgType.TEXT:
                             continue
@@ -175,7 +176,7 @@ class TestWsController(_ApiServiceCase):
                     assert resp.status == 200
 
                 matched = None
-                async with asyncio.timeout(8):
+                async with async_timeout.timeout(8):
                     async for msg in ws:
                         if msg.type != aiohttp.WSMsgType.TEXT:
                             continue
