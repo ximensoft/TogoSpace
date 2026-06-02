@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from util import llmApiUtil
@@ -93,9 +94,59 @@ class FillMissingReasoningContentRule(LlmRequestRule):
         return request.model_copy(update={"messages": new_messages})
 
 
+class SanitizeToolCallArgumentsRule(LlmRequestRule):
+    """修复历史消息中 tool_call 的无效 JSON arguments。
+
+    LLM 返回的 tool_calls 中 arguments 可能包含无效 JSON，
+    在发送给下一轮 LLM 前需要修复，否则会导致解析错误。
+    """
+
+    def check_match(self, request: llmApiUtil.OpenAIRequest) -> bool:
+        return any(
+            msg.tool_calls is not None
+            and any(
+                not self._is_valid_json(tc.function.get("arguments", "{}"))
+                for tc in msg.tool_calls
+            )
+            for msg in request.messages
+        )
+
+    def apply(self, request: llmApiUtil.OpenAIRequest) -> llmApiUtil.OpenAIRequest:
+        new_messages = []
+        for msg in request.messages:
+            if msg.tool_calls is None:
+                new_messages.append(msg)
+                continue
+            new_tool_calls = []
+            for tc in msg.tool_calls:
+                args = tc.function.get("arguments", "{}")
+                if not self._is_valid_json(args):
+                    logger.warning(
+                        "sanitizing invalid tool_call arguments: tool_call_id=%s, function=%s",
+                        tc.id, tc.function.get("name"),
+                    )
+                    new_func = dict(tc.function)
+                    new_func["arguments"] = "{}"
+                    tc = tc.model_copy(update={"function": new_func})
+                new_tool_calls.append(tc)
+            new_messages.append(msg.model_copy(update={"tool_calls": new_tool_calls}))
+        return request.model_copy(update={"messages": new_messages})
+
+    @staticmethod
+    def _is_valid_json(value: str) -> bool:
+        if not value:
+            return True
+        try:
+            json.loads(value)
+            return True
+        except (json.JSONDecodeError, ValueError):
+            return False
+
+
 _RULES: tuple[LlmRequestRule, ...] = (
     StripRequiredToolChoiceForReasoningRule(),
     FillMissingReasoningContentRule(),
+    SanitizeToolCallArgumentsRule(),
 )
 
 

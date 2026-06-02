@@ -350,3 +350,87 @@ class TestIntegrationMultiAgentChat(ServiceTestCase):
             assert any(AgentHistoryTag.ROOM_TURN_FINISH in msg.tags for msg in history), "turn 未正常完成"
         finally:
             scheduler._schedule_state = ScheduleState.RUNNING
+
+    async def test_invalid_tool_call_arguments_sanitized_on_serialize(self):
+        """验证 OpenAIToolCall 的 function_args 属性和 model_dump 行为。
+
+        场景：构造一个 arguments 为非法 JSON 的 tool_call，验证：
+        1. function_args 属性返回原始值（不做降级）；
+        2. model_dump() 输出的 arguments 为原始值（序列化不再自动修复）；
+        3. 有效 JSON 不受影响。
+        """
+        # 无效 JSON 参数
+        tc_invalid = OpenAIToolCall(
+            id="call_invalid_args",
+            function={"name": "send_chat_msg", "arguments": "not valid json {{{"},
+        )
+        assert tc_invalid.function_args == "not valid json {{{", "function_args 应返回原始值"
+        dumped = tc_invalid.model_dump()
+        assert dumped["function"]["arguments"] == "not valid json {{{", "model_dump 应返回原始值"
+
+        # 嵌套在 OpenAIMessage 中
+        msg = OpenAIMessage(role=OpenaiApiRole.ASSISTANT, tool_calls=[tc_invalid])
+        msg_dumped = msg.model_dump()
+        assert msg_dumped["tool_calls"][0]["function"]["arguments"] == "not valid json {{{"
+
+        # 有效 JSON 不受影响
+        tc_valid = OpenAIToolCall(
+            id="call_valid_args",
+            function={"name": "send_chat_msg", "arguments": '{"msg": "hello"}'},
+        )
+        assert tc_valid.function_args == '{"msg": "hello"}'
+        assert tc_valid.model_dump()["function"]["arguments"] == '{"msg": "hello"}'
+
+    async def test_invalid_tool_call_arguments_sanitized_by_rule(self):
+        """验证 SanitizeToolCallArgumentsRule 修复无效 JSON arguments。
+
+        场景：构造一个 arguments 为非法 JSON 的 tool_call，验证：
+        1. 规则能检测到无效 JSON；
+        2. 规则修复后 arguments 变为 '{}'；
+        3. 有效 JSON 不受影响。
+        """
+        from service.llmService.llmRequestRules import SanitizeToolCallArgumentsRule
+        from util.llmApiUtil import OpenAIRequest
+
+        rule = SanitizeToolCallArgumentsRule()
+
+        # 无效 JSON 参数
+        tc_invalid = OpenAIToolCall(
+            id="call_invalid_args",
+            function={"name": "send_chat_msg", "arguments": "not valid json {{{"},
+        )
+        msg_with_invalid = OpenAIMessage(role=OpenaiApiRole.ASSISTANT, tool_calls=[tc_invalid])
+
+        # 有效 JSON 参数
+        tc_valid = OpenAIToolCall(
+            id="call_valid_args",
+            function={"name": "send_chat_msg", "arguments": '{"msg": "hello"}'},
+        )
+        msg_with_valid = OpenAIMessage(role=OpenaiApiRole.ASSISTANT, tool_calls=[tc_valid])
+
+        # 构造包含两种消息的请求
+        request = OpenAIRequest(
+            model="test-model",
+            messages=[
+                OpenAIMessage.text(OpenaiApiRole.USER, "test"),
+                msg_with_invalid,
+                msg_with_valid,
+            ],
+        )
+
+        # 验证规则匹配
+        assert rule.check_match(request) is True, "应检测到无效 JSON"
+
+        # 应用规则
+        fixed_request = rule.apply(request)
+
+        # 验证修复结果
+        fixed_invalid_msg = fixed_request.messages[1]
+        assert fixed_invalid_msg.tool_calls[0].function["arguments"] == "{}", "无效 JSON 应被修复为 '{}'"
+
+        # 验证有效 JSON 不受影响
+        fixed_valid_msg = fixed_request.messages[2]
+        assert fixed_valid_msg.tool_calls[0].function["arguments"] == '{"msg": "hello"}', "有效 JSON 不应被修改"
+
+        # 验证修复后规则不再匹配
+        assert rule.check_match(fixed_request) is False, "修复后不应再匹配"
