@@ -7,6 +7,26 @@ import pytest
 import backend_main
 
 
+class TestDetectRunEnv:
+    def test_source_by_default(self, monkeypatch):
+        monkeypatch.delenv("TOGOSPACE_RUN_ENV", raising=False)
+        assert backend_main._detect_run_env() == "source"
+
+    def test_docker_when_env_var_set(self, monkeypatch):
+        monkeypatch.setenv("TOGOSPACE_RUN_ENV", "docker")
+        assert backend_main._detect_run_env() == "docker"
+
+    def test_mac_app_when_frozen(self, monkeypatch):
+        monkeypatch.delenv("TOGOSPACE_RUN_ENV", raising=False)
+        monkeypatch.setattr(backend_main.sys, "frozen", True, raising=False)
+        assert backend_main._detect_run_env() == "mac_app"
+
+    def test_docker_priority_over_frozen(self, monkeypatch):
+        monkeypatch.setenv("TOGOSPACE_RUN_ENV", "docker")
+        monkeypatch.setattr(backend_main.sys, "frozen", True, raising=False)
+        assert backend_main._detect_run_env() == "docker"
+
+
 def test_request_shutdown_noop_when_main_loop_not_initialized(monkeypatch):
     monkeypatch.setattr(backend_main, "_main_loop", None)
     monkeypatch.setattr(backend_main, "_shutdown_event", None)

@@ -43,7 +43,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     TOGOSPACE_HOME=/opt/togospace \
-    STORAGE_ROOT=/storage
+    STORAGE_ROOT=/storage \
+    TOGOSPACE_RUN_ENV=docker
 
 # 安装 Python 和运行依赖
 RUN apt-get update && apt-get install -y \

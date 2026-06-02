@@ -94,6 +94,15 @@ def _handle_shutdown_signal(signum: int, _frame) -> None:
     request_shutdown()
 
 
+def _detect_run_env() -> str:
+    """检测当前运行环境：docker / mac_app / source。"""
+    if os.environ.get("TOGOSPACE_RUN_ENV") == "docker":
+        return "docker"
+    if getattr(sys, "frozen", False):
+        return "mac_app"
+    return "source"
+
+
 async def main(config_dir: str = None, port: int | None = None):
     global _main_loop, _shutdown_event
 
@@ -111,7 +120,8 @@ async def main(config_dir: str = None, port: int | None = None):
     demo_mode = app_config.setting.demo_mode
 
     _config_dir = config_dir or appPaths.CONFIG_DIR
-    logger.info("[启动] 版本=v%s", __version__)
+    run_env = _detect_run_env()
+    logger.info("[启动] 版本=v%s | 运行环境=%s", __version__, run_env)
     logger.info("[启动] storage_root=%s | preset=%s", appPaths.STORAGE_ROOT, appPaths.PRESET_DIR)
     if demo_mode.read_only:
         logger.info("[启动] 演示模式已启用：freeze_data=true，系统将以只读浏览态启动")
