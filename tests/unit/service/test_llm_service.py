@@ -461,41 +461,92 @@ async def test_infer_stream_retries_up_to_limit_then_returns_failure(monkeypatch
     assert status_events[-1].attempt == 8
 
 
-# ─── _is_retryable_error ──────────────────────────────────
+# ─── classify_llm_error ──────────────────────────────────
 
-from service.llmService.core import _is_retryable_error
-
-
-def test_is_retryable_transient_error_returns_true():
-    assert _is_retryable_error(RuntimeError("temporary failure")) is True
-
-
-def test_is_retryable_context_length_exceeded_keyword_returns_false():
-    assert _is_retryable_error(RuntimeError("context_length_exceeded")) is False
+from constants import LlmErrorCategory
+from service.llmService.llmErrorClassifier import classify_llm_error, RETRYABLE_CATEGORIES
+from litellm.exceptions import (
+    AuthenticationError, ContentPolicyViolationError, ContextWindowExceededError,
+    InternalServerError, RateLimitError, APIConnectionError, Timeout,
+    BadRequestError, InvalidRequestError, PermissionDeniedError, ServiceUnavailableError,
+)
 
 
-def test_is_retryable_input_too_long_with_is_returns_false():
-    assert _is_retryable_error(RuntimeError("input is too long")) is False
+def test_classify_unknown_error_is_retryable():
+    assert classify_llm_error(RuntimeError("temporary failure")) == LlmErrorCategory.UNKNOWN
+    assert LlmErrorCategory.UNKNOWN in RETRYABLE_CATEGORIES
 
 
-def test_is_retryable_input_too_long_no_is_returns_false():
-    error_text = "Input too long: 217074 input tokens, limit is 202752 for this model"
-    assert _is_retryable_error(RuntimeError(error_text)) is False
-
-
-def test_is_retryable_other_overflow_keywords_returns_false():
+def test_classify_context_window_keyword():
+    assert classify_llm_error(RuntimeError("context_length_exceeded")) == LlmErrorCategory.CONTEXT_WINDOW
+    assert classify_llm_error(RuntimeError("input is too long")) == LlmErrorCategory.CONTEXT_WINDOW
+    assert classify_llm_error(RuntimeError("Input too long: 217074 input tokens, limit is 202752")) == LlmErrorCategory.CONTEXT_WINDOW
     for kw in ("maximum context length", "prompt is too long", "exceeds the context window",
                "too many tokens", "context window", "max_tokens", "token limit"):
-        assert _is_retryable_error(RuntimeError(kw)) is False, f"keyword '{kw}' should be non-retryable"
+        result = classify_llm_error(RuntimeError(kw))
+        assert result == LlmErrorCategory.CONTEXT_WINDOW, f"keyword '{kw}' should be CONTEXT_WINDOW"
 
 
-def test_is_retryable_context_window_exceeded_type_returns_false(monkeypatch):
-    class _FakeCWE(Exception):
-        pass
+def test_classify_context_window_exceeded_type():
+    error = ContextWindowExceededError("too long", "model", 400)
+    assert classify_llm_error(error) == LlmErrorCategory.CONTEXT_WINDOW
 
-    from service.llmService import core as llm_core
-    monkeypatch.setattr(llm_core, "ContextWindowExceededError", _FakeCWE)
-    assert _is_retryable_error(_FakeCWE()) is False
+
+def test_classify_auth_error():
+    error = AuthenticationError("invalid key", "model", 401)
+    assert classify_llm_error(error) == LlmErrorCategory.AUTH_ERROR
+    assert LlmErrorCategory.AUTH_ERROR not in RETRYABLE_CATEGORIES
+
+
+def test_classify_permission_denied():
+    from unittest.mock import MagicMock
+    error = PermissionDeniedError("forbidden", "provider", "model", response=MagicMock())
+    assert classify_llm_error(error) == LlmErrorCategory.AUTH_ERROR
+
+
+def test_classify_content_policy():
+    error = ContentPolicyViolationError("policy", "model", 400)
+    assert classify_llm_error(error) == LlmErrorCategory.CONTENT_POLICY
+    assert LlmErrorCategory.CONTENT_POLICY not in RETRYABLE_CATEGORIES
+
+
+def test_classify_rate_limited():
+    error = RateLimitError("rate limit", "model", 429)
+    assert classify_llm_error(error) == LlmErrorCategory.RATE_LIMITED
+    assert LlmErrorCategory.RATE_LIMITED in RETRYABLE_CATEGORIES
+
+
+def test_classify_server_error():
+    assert classify_llm_error(InternalServerError("500", "model", 500)) == LlmErrorCategory.SERVER_ERROR
+    assert classify_llm_error(ServiceUnavailableError("503", "model", 503)) == LlmErrorCategory.SERVER_ERROR
+    assert LlmErrorCategory.SERVER_ERROR in RETRYABLE_CATEGORIES
+
+
+def test_classify_network_error():
+    assert classify_llm_error(APIConnectionError("conn", "model", 503)) == LlmErrorCategory.NETWORK_ERROR
+    assert classify_llm_error(Timeout("timeout", "model", 408)) == LlmErrorCategory.NETWORK_ERROR
+    assert LlmErrorCategory.NETWORK_ERROR in RETRYABLE_CATEGORIES
+
+
+def test_classify_bad_request_with_context_window_keyword():
+    error = BadRequestError("context_length_exceeded blah", "model", 400)
+    assert classify_llm_error(error) == LlmErrorCategory.CONTEXT_WINDOW
+
+
+def test_classify_bad_request_generic():
+    error = BadRequestError("unsupported parameter", "model", 400)
+    assert classify_llm_error(error) == LlmErrorCategory.INVALID_REQUEST
+    assert LlmErrorCategory.INVALID_REQUEST not in RETRYABLE_CATEGORIES
+
+
+def test_non_retryable_categories():
+    non_retryable = {
+        LlmErrorCategory.CONTEXT_WINDOW,
+        LlmErrorCategory.AUTH_ERROR,
+        LlmErrorCategory.INVALID_REQUEST,
+        LlmErrorCategory.CONTENT_POLICY,
+    }
+    assert non_retryable.isdisjoint(RETRYABLE_CATEGORIES)
 
 
 # ─── infer 不重试不可恢复的错误 ──────────────────────────────

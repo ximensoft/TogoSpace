@@ -181,6 +181,17 @@ class InferRequestStateType(EnhanceEnum):
     RETRYING = auto()
 
 
+class LlmErrorCategory(EnhanceEnum):
+    CONTEXT_WINDOW  = auto()  # 上下文超长（确定性失败）
+    AUTH_ERROR      = auto()  # 认证失败
+    INVALID_REQUEST = auto()  # 请求参数有误
+    CONTENT_POLICY  = auto()  # 内容策略违规
+    RATE_LIMITED    = auto()  # 限流
+    SERVER_ERROR    = auto()  # 服务端 5xx
+    NETWORK_ERROR   = auto()  # 连接/超时
+    UNKNOWN         = auto()  # 未分类
+
+
 class TaskStatus(EnhanceEnum):
     """协作任务状态枚举。"""
     TODO        = "TODO"
