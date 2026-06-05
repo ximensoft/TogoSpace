@@ -938,17 +938,16 @@ async def send_chat_msg(room_name: str, msg: str, _context: ToolCallContext = No
     if _context.chat_room is not None and target_room.room_id == _context.chat_room.room_id:
         return {"success": True, "message": "消息已送达房间。如果你还有其他工具需要调用，请继续；如果本轮操作已全部完成，请调用 finish_action 结束行动。"}
 
-    return {"success": True, "message": (
-        f"消息已送达 {target_room.name}。如果你还有其他工具需要调用，请继续；如果本轮操作已全部完成，请调用 finish_action 结束行动。"
-    )}
+    return {"success": True, "message": f"消息已送达 {target_room.name}。如果你还有其他工具需要调用，请继续；如果本轮操作已全部完成，请调用 finish_action 结束行动。"}
 
 
 async def finish_action(_context: ToolCallContext = None, confirm_no_need_talk: bool = False) -> dict:
     """结束行动。当你完成所有发言和工具调用后（或者无需行动时），必须调用此工具来把行动机会让给下一位成员。
 
     参数：
-    - confirm_no_need_talk (bool)：确认本轮无需在任何房间发言。仅在你本轮没有通过 send_chat_msg 发过消息时才需要设置为 true。
-      如果你在本轮已在收到消息的房间发送过消息，那么无需设置此参数为 true。
+    - confirm_no_need_talk (bool)：确认本轮无需在收到消息通知的房间发言。
+      - 本轮未在对应房间发言时：若确认不需要发言，须设置为 true 才能结束行动。
+      - 本轮已在对应房间发言时：不得设置此参数，直接调用 finish_action 即可。
       ⚠️ 注意：直接输出（非 send_chat_msg）的文字用户看不到，不算发言。"""
     if _context is None:
         logger.warning("结束行动失败，上下文未设置")
@@ -959,19 +958,35 @@ async def finish_action(_context: ToolCallContext = None, confirm_no_need_talk: 
     if task_type == AgentTaskType.TODO_TASK:
         agent_task_id = _context.schedule_task.task_data.get("agent_task_id")
         agent_task = await gtAgentTaskManager.get_task(agent_task_id) if agent_task_id else None
-        if agent_task is not None and agent_task.status == TaskStatus.TODO:
-            logger.warning(f"finish_action 被拒绝，协作任务仍为 TODO: agent_id={_context.agent_id}, agent_task_id={agent_task_id}")
-            return {
-                "success": False,
-                "message": (
-                    f"finish 失败，被唤醒的任务【{agent_task.title}】状态仍为 TODO，尚未处理。\n\n"
-                    "请先完成任务处理：\n"
-                    "- 若已完成，请调用 `update_task` 将状态改为 DONE 并填写结果。\n"
-                    "- 若需暂缓（本轮无法完成），请调用 `update_task` 将状态改为 ON_HOLD。\n"
-                    "- 若需取消，请调用 `update_task` 将状态改为 CANCELLED。\n"
-                    "完成后再调用 finish_action。"
-                ),
-            }
+        if agent_task is not None:
+            is_assignee = agent_task.assignee_id == _context.agent_id
+            is_manager  = agent_task.manager_id == _context.agent_id
+
+            if is_assignee and agent_task.status in (TaskStatus.TODO, TaskStatus.IN_PROGRESS):
+                logger.warning(f"finish_action 被拒绝，协作任务仍为 {agent_task.status.value}: agent_id={_context.agent_id}, agent_task_id={agent_task_id}")
+                return {
+                    "success": False,
+                    "message": f"""\
+finish 失败，你负责执行的任务【{agent_task.title}】状态仍为 {agent_task.status.value}，尚未处理完毕。
+
+请先完成任务处理：
+- 若已完成，请调用 `update_task` 将状态改为 REVIEWING（有验收人时）或 DONE 并填写结果。
+- 若需暂缓（本轮无法完成），请调用 `update_task` 将状态改为 ON_HOLD。
+- 若需取消，请调用 `update_task` 将状态改为 CANCELLED。
+完成后再调用 finish_action。""",
+                }
+            elif is_manager and agent_task.status == TaskStatus.REVIEWING:
+                logger.warning(f"finish_action 被拒绝，协作任务待验收: agent_id={_context.agent_id}, agent_task_id={agent_task_id}")
+                return {
+                    "success": False,
+                    "message": f"""\
+finish 失败，你负责验收的任务【{agent_task.title}】依然为 reviewing状态，未完成审核。
+
+请先完成验收：
+- 验收通过：请调用 `update_task` 将状态改为 DONE。
+- 打回重做：请调用 `update_task` 将状态改为 IN_PROGRESS。
+完成后再调用 finish_action。""",
+                }
         logger.info(f"Agent 结束协作任务行动: agent_id={_context.agent_id}")
         return {"success": True, "message": "已结束了本轮行动."}
 
@@ -990,11 +1005,11 @@ async def finish_action(_context: ToolCallContext = None, confirm_no_need_talk: 
             room_name = _context.chat_room.name
             return {
                 "success": False,
-                "message": (
-                    f"finish 失败，你本次行动中，未在收到消息的房间【{room_name}】发言。\n\n"
-                    "1. 如果你忘记发言（或者是不小心用直接输出替代了向房间发言），那么请调用 send_chat_msg 发送消息。\n"
-                    "2. 如果你确认不需要发言，请设置 confirm_no_need_talk=true 重新调用 finish_action。"
-                ),
+                "message": f"""\
+finish 失败，你本次行动中，未在收到消息的房间【{room_name}】发言。
+
+1. 如果你忘记发言（或者是不小心用直接输出替代了向房间发言），那么请调用 send_chat_msg 发送消息。
+2. 如果你确认不需要发言，请设置 confirm_no_need_talk=true 重新调用 finish_action。""",
             }
 
         logger.info(f"Agent 结束行动: agent_id={_context.agent_id}")
@@ -1029,7 +1044,7 @@ async def create_task(
         title: 任务标题
         assignee_id: 执行人 Agent ID
         description: 任务描述，含上下文、约束和交付标准
-        manager_id: 验收人 Agent ID，不填则无需验收流程
+        manager_id: 完成时若需要他人验收，则设置验收人 Agent ID，不填则无需验收流程；不能与 assignee_id 相同（同一人无需设置验收）
         priority: 优先级，HIGH / NORMAL / LOW，默认 NORMAL
         parent_id: 父任务 ID，用于子任务拆解
         depends_on: 依赖的任务 ID 列表，全部完成后才允许开始

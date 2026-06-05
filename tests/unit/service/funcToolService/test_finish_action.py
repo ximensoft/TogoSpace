@@ -14,7 +14,12 @@ def _make_context(has_content: bool) -> ToolCallContext:
     return ToolCallContext(agent_id=1, team_id=1, chat_room=room)
 
 
-def _make_collab_context(agent_task_status: TaskStatus = TaskStatus.DONE) -> ToolCallContext:
+def _make_collab_context(
+    agent_task_status: TaskStatus = TaskStatus.DONE,
+    agent_id: int = 1,
+    assignee_id: int = 1,
+    manager_id: int | None = None,
+) -> tuple[ToolCallContext, MagicMock]:
     """构造协作任务模式的 ToolCallContext（含 schedule_task 和 mock agent_task）。"""
     schedule_task = MagicMock()
     schedule_task.task_type = AgentTaskType.TODO_TASK
@@ -22,7 +27,9 @@ def _make_collab_context(agent_task_status: TaskStatus = TaskStatus.DONE) -> Too
     agent_task = MagicMock()
     agent_task.title = "测试任务"
     agent_task.status = agent_task_status
-    return ToolCallContext(agent_id=1, team_id=1, chat_room=None, schedule_task=schedule_task), agent_task
+    agent_task.assignee_id = assignee_id
+    agent_task.manager_id = manager_id
+    return ToolCallContext(agent_id=agent_id, team_id=1, chat_room=None, schedule_task=schedule_task), agent_task
 
 
 @pytest.mark.asyncio
@@ -83,11 +90,42 @@ async def test_finish_collaboration_task_no_room() -> None:
 
 @pytest.mark.asyncio
 async def test_finish_collaboration_task_still_todo() -> None:
-    """协作任务模式：任务仍为 TODO → finish 失败，提示先更新任务（含 ON_HOLD 选项）。"""
-    ctx, mock_task = _make_collab_context(TaskStatus.TODO)
+    """协作任务模式：assignee 任务仍为 TODO → finish 失败，提示先更新任务（含 ON_HOLD 选项）。"""
+    ctx, mock_task = _make_collab_context(TaskStatus.TODO, agent_id=1, assignee_id=1)
     with patch("service.funcToolService.tools.gtAgentTaskManager.get_task", AsyncMock(return_value=mock_task)):
         result = await finish_action(_context=ctx)
     assert result["success"] is False
     assert "TODO" in result["message"]
     assert "update_task" in result["message"]
     assert "ON_HOLD" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_finish_collaboration_task_still_in_progress() -> None:
+    """协作任务模式：assignee 任务仍为 IN_PROGRESS → finish 失败，提示先更新任务。"""
+    ctx, mock_task = _make_collab_context(TaskStatus.IN_PROGRESS, agent_id=1, assignee_id=1)
+    with patch("service.funcToolService.tools.gtAgentTaskManager.get_task", AsyncMock(return_value=mock_task)):
+        result = await finish_action(_context=ctx)
+    assert result["success"] is False
+    assert "IN_PROGRESS" in result["message"]
+    assert "update_task" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_finish_collaboration_task_manager_reviewing_blocked() -> None:
+    """协作任务模式：manager 任务为 REVIEWING 未处理 → finish 失败，提示完成验收。"""
+    ctx, mock_task = _make_collab_context(TaskStatus.REVIEWING, agent_id=2, assignee_id=1, manager_id=2)
+    with patch("service.funcToolService.tools.gtAgentTaskManager.get_task", AsyncMock(return_value=mock_task)):
+        result = await finish_action(_context=ctx)
+    assert result["success"] is False
+    assert "reviewing" in result["message"].lower()
+    assert "update_task" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_finish_collaboration_task_assignee_reviewing_passes() -> None:
+    """协作任务模式：assignee 已提交 REVIEWING → finish 成功（等待 manager 验收）。"""
+    ctx, mock_task = _make_collab_context(TaskStatus.REVIEWING, agent_id=1, assignee_id=1, manager_id=2)
+    with patch("service.funcToolService.tools.gtAgentTaskManager.get_task", AsyncMock(return_value=mock_task)):
+        result = await finish_action(_context=ctx)
+    assert result["success"] is True

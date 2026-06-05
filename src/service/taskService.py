@@ -56,6 +56,10 @@ async def create_task(
     if priority_enum is None:
         return {"success": False, "message": f"无效的优先级：{priority}，有效值为 HIGH / NORMAL / LOW"}
 
+    # assignee 与 manager 不能是同一人
+    if manager_id is not None and assignee_id == manager_id:
+        return {"success": False, "message": "manager 与 assignee 是同一人时，无需设置 manager，请去掉 manager_id 参数", "error_code": "invalid_manager"}
+
     # 验证 assignee 权限
     if assignee_id != creator_id:
         from service import deptService

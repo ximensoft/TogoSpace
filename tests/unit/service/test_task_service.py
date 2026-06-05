@@ -70,6 +70,23 @@ def _build_task(**overrides):
 
 
 @pytest.mark.asyncio
+async def test_create_task_same_assignee_and_manager_returns_failure(task_manager_mock):
+    """assignee 与 manager 相同时，应拒绝创建任务。"""
+    result = await taskService.create_task(
+        team_id=1,
+        creator_id=11,
+        title="self review",
+        assignee_id=11,
+        manager_id=11,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "invalid_manager"
+    assert "manager" in result["message"]
+    task_manager_mock.create_task.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_create_task_success_self_assign(task_manager_mock, saved_task):
     """创建人给自己派单时应成功创建任务。"""
     task_manager_mock.create_task = AsyncMock(return_value=saved_task)
