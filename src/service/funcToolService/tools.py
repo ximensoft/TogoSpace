@@ -561,7 +561,7 @@ async def save_agent(
     payload["role_template_name"] = role_template.name
     return {
         "success": True,
-        "message": f"已{action}成员 {normalized_name}。配置已保存到当前团队。",
+        "message": f"已{action}成员 {normalized_name}。配置已保存，需要 reload_team 后生效。",
         "agent": payload,
     }
 

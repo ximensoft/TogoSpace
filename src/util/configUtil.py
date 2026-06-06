@@ -135,6 +135,11 @@ def _load_setting(config_dir: str) -> SettingConfig:
             else:
                 svc["base_url"] = f"http://127.0.0.1:{mock_port}/v1/chat/completions"
 
+    # 迁移：将旧版默认的 reserve_output_tokens=8192 升级为 16384
+    for svc in cfg.get("llm_services", []):
+        if svc.get("reserve_output_tokens") == 8192:
+            svc["reserve_output_tokens"] = 16384
+
     return SettingConfig.model_validate(cfg)
 
 
