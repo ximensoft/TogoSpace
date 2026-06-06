@@ -209,7 +209,7 @@ async def start_chat(
     """与指定 Agent 发起单聊（私聊）。若两人之间已有房间则直接返回，不重复创建。
 
     Args:
-        agent_name: 要发起对话的目标 Agent 名称。
+        agent_name: 要发起对话的目标 Agent 名称（内部标识符，即 name 字段，非 display_name）。
     """
     ok, team_id = _require_team_context(_context)
     if not ok:
@@ -280,7 +280,7 @@ async def get_agent_info(agent_name: Optional[str] = None, _context: ToolCallCon
     """查询 Agent 信息。不传 agent_name 时返回团队成员列表，传入时返回指定成员详情。
 
     Args:
-        agent_name: Agent 名称，省略时返回所有 Agent
+        agent_name: Agent 名称（内部标识符，即 name 字段，非 display_name），省略时返回所有 Agent
     """
     ok, team_id = _require_team_context(_context)
     if not ok:
@@ -298,6 +298,7 @@ async def get_agent_info(agent_name: Optional[str] = None, _context: ToolCallCon
         info: dict[str, Any] = {
             "id": agent_id,
             "name": agent.gt_agent.name,
+            "display_name": agent.gt_agent.display_name,
             "status": agent.status.name,
             "departments": [
                 {
@@ -322,7 +323,7 @@ async def get_agent_info(agent_name: Optional[str] = None, _context: ToolCallCon
         agents = [await _build_agent_dict(agent, detail=False) for agent in team_agents]
         return {"success": True, "agents": agents}
 
-    target_agent = next((agent for agent in team_agents if agent.gt_agent.name == agent_name), None)
+    target_agent = next((agent for agent in team_agents if agent.gt_agent.name == agent_name or agent.gt_agent.display_name == agent_name), None)
     if target_agent is None:
         return {"success": False, "message": f"未找到成员: {agent_name}"}
 
@@ -333,7 +334,7 @@ async def wake_up_agent(agent_name: str, _context: ToolCallContext = None) -> di
     """唤醒处于 FAILED 状态的 Agent，使其重新进入调度循环。
 
     Args:
-        agent_name: 要唤醒的 Agent 名称
+        agent_name: 要唤醒的 Agent 名称（内部标识符，即 name 字段，非 display_name）
     """
     ok, team_id = _require_team_context(_context)
     if not ok:
