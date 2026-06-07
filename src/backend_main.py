@@ -186,6 +186,7 @@ async def main(config_dir: str = None, port: int | None = None):
         await persistenceService.shutdown()
         await ormService.shutdown()
         funcToolService.shutdown()
+        skillService.shutdown()
         roomService.shutdown()
         llmService.shutdown()
         await messageBus.shutdown()

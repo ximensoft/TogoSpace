@@ -1181,13 +1181,11 @@ async def load_skill(
     if skill_info is None:
         return {"success": False, "message": f"技能 {skill_name} 不存在"}
 
-    content = skillService.load_skill_content(skill_name)
-    if content is None:
+    content = skill_info.content
+    if not content:
         return {"success": False, "message": f"读取技能 {skill_name} 内容失败"}
 
-    files = skillService.load_skill_files(skill_name)
-    if files is None:
-        files = []
+    files = skill_info.files
 
     return {
         "success": True,

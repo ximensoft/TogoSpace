@@ -27,7 +27,7 @@ description: 代码审查技能包
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(content)
         f.flush()
-        name, desc = _parse_skill_md(f.name)
+        name, desc, parsed_content = _parse_skill_md(f.name)
     os.unlink(f.name)
 
     assert name == "code_review"
@@ -45,7 +45,7 @@ description: 某个技能
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(content)
         f.flush()
-        name, desc = _parse_skill_md(f.name)
+        name, desc, parsed_content = _parse_skill_md(f.name)
     os.unlink(f.name)
 
     assert name is None
@@ -63,7 +63,7 @@ name: test_skill
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(content)
         f.flush()
-        name, desc = _parse_skill_md(f.name)
+        name, desc, parsed_content = _parse_skill_md(f.name)
     os.unlink(f.name)
 
     assert name == "test_skill"
@@ -76,7 +76,7 @@ def test_parse_skill_md_no_front_matter():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(content)
         f.flush()
-        name, desc = _parse_skill_md(f.name)
+        name, desc, parsed_content = _parse_skill_md(f.name)
     os.unlink(f.name)
 
     assert name is None
@@ -92,7 +92,7 @@ description: 无闭合标记
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(content)
         f.flush()
-        name, desc = _parse_skill_md(f.name)
+        name, desc, parsed_content = _parse_skill_md(f.name)
     os.unlink(f.name)
 
     assert name is None
@@ -100,7 +100,7 @@ description: 无闭合标记
 
 def test_parse_skill_md_nonexistent_file():
     """文件不存在时返回 (None, "")。"""
-    name, desc = _parse_skill_md("/nonexistent/path/SKILL.md")
+    name, desc, parsed_content = _parse_skill_md("/nonexistent/path/SKILL.md")
     assert name is None
     assert desc == ""
 
@@ -232,8 +232,9 @@ def test_load_skill_content_returns_markdown():
         skillService._SKILLS_DIR = tmpdir
         try:
             skillService.startup()
-            content = skillService.load_skill_content("readable_skill")
-            assert content == md_content
+            info = skillService.get_skill("readable_skill")
+            assert info is not None
+            assert info.content == md_content
         finally:
             skillService._SKILLS_DIR = original
 
@@ -244,7 +245,7 @@ def test_load_skill_content_nonexistent_returns_none():
     skillService._SKILLS_DIR = "/nonexistent/skills"
     try:
         skillService.startup()
-        assert skillService.load_skill_content("no_such_skill") is None
+        assert skillService.get_skill("no_such_skill") is None
     finally:
         skillService._SKILLS_DIR = original
 
@@ -263,10 +264,10 @@ def test_load_skill_files_returns_relative_paths():
         skillService._SKILLS_DIR = tmpdir
         try:
             skillService.startup()
-            files = skillService.load_skill_files("files_skill")
-            assert files is not None
-            assert "SKILL.md" in files
-            assert "guide.md" in files
+            info = skillService.get_skill("files_skill")
+            assert info is not None
+            assert "SKILL.md" in info.files
+            assert "guide.md" in info.files
         finally:
             skillService._SKILLS_DIR = original
 
@@ -277,7 +278,7 @@ def test_load_skill_files_nonexistent_returns_none():
     skillService._SKILLS_DIR = "/nonexistent/skills"
     try:
         skillService.startup()
-        assert skillService.load_skill_files("no_such_skill") is None
+        assert skillService.get_skill("no_such_skill") is None
     finally:
         skillService._SKILLS_DIR = original
 
