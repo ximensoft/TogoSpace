@@ -190,6 +190,78 @@ _CACHE_INJECTION_POINTS = [
     {"location": "message", "index": -1},        # 最后一条消息作为第二个缓存边界
 ]
 
+
+def _log_raw_response(error: Exception, request_id: str, stream: bool) -> None:
+    """当 LLM 请求异常时，尝试从异常链中提取并记录上游 API 的原始响应体。
+
+    部分上游 API（如 DeepSeek）在特定错误场景下会返回非标准 JSON 响应，
+    导致 SDK 的 JSON 解析失败（如 'Expecting value: line 1 column 67'）。
+    此函数从异常对象中提取 httpx.Response 和 body 信息，记录到日志以便排查。
+
+    此函数绝不抛出异常——它是诊断辅助函数，不应影响主流程的错误传播。
+    """
+    try:
+        raw_body = None
+        status_code = None
+        response_url = None
+
+        # 从异常链中寻找原始响应信息
+        current = error
+        while current is not None:
+            # litellm BadRequestError 等异常携带 response 和 body 属性
+            response_obj = getattr(current, "response", None)
+            if response_obj is not None:
+                try:
+                    status_code = getattr(response_obj, "status_code", None)
+                    response_url = str(getattr(response_obj, "url", ""))
+                    # 尝试读取原始响应体
+                    raw_body = getattr(response_obj, "_content", None)
+                    if raw_body is None:
+                        raw_body = getattr(response_obj, "text", None)
+                    elif isinstance(raw_body, bytes):
+                        raw_body = raw_body.decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+
+            # litellm 异常有 body 属性（dict 或原始内容）
+            body = getattr(current, "body", None)
+            if body is not None and raw_body is None:
+                try:
+                    if isinstance(body, (dict, list)):
+                        raw_body = json.dumps(body, ensure_ascii=False, default=str)
+                    elif isinstance(body, str):
+                        raw_body = body
+                    elif isinstance(body, bytes):
+                        raw_body = body.decode("utf-8", errors="replace")
+                except Exception:
+                    raw_body = f"<unserializable body, type={type(body).__name__}>"
+
+            if raw_body is not None:
+                break
+
+            current = current.__cause__ or getattr(current, "__context__", None)
+
+        if raw_body is not None or status_code is not None:
+            # 截断过长的响应体，避免日志膨胀
+            if isinstance(raw_body, str) and len(raw_body) > 4096:
+                raw_body = raw_body[:4096] + f"... (truncated, total {len(raw_body)} bytes)"
+            logger.error(
+                "LLM upstream raw response: request_id=%s, stream=%s, status_code=%s, url=%s, raw_body=%s",
+                request_id, stream, status_code, response_url, raw_body,
+            )
+        else:
+            logger.warning(
+                "LLM upstream raw response unavailable: request_id=%s, stream=%s, error_type=%s",
+                request_id, stream, type(error).__name__,
+            )
+    except Exception:
+        # 诊断函数绝不能影响主流程，任何异常都静默吞掉
+        logger.warning(
+            "LLM upstream raw response logging failed: request_id=%s, stream=%s",
+            request_id, stream,
+            exc_info=True,
+        )
+
 _AGENT_PROBE_TOOLS = [
     OpenAITool(
         function=OpenAIFunction(
@@ -323,7 +395,8 @@ async def send_request_stream(
             request_id, True, len(chunks), _to_log_json(merged),
         )
         return OpenAIResponse.model_validate(merged.model_dump(exclude_none=False))
-    except Exception:
+    except Exception as e:
+        _log_raw_response(e, request_id, stream=True)
         logger.exception("LLM upstream request failed: request_id=%s, stream=%s", request_id, True)
         raise
 
@@ -369,6 +442,7 @@ async def send_request_non_stream(
             request_id, False, _to_log_json(response),
         )
         return OpenAIResponse.model_validate(response.model_dump(exclude_none=False))
-    except Exception:
+    except Exception as e:
+        _log_raw_response(e, request_id, stream=False)
         logger.exception("LLM upstream request failed: request_id=%s, stream=%s", request_id, False)
         raise
