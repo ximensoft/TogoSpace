@@ -5,6 +5,7 @@ import tempfile
 import pytest
 
 import service.skillService as skillService
+import appPaths
 from service.skillService import SkillInfo, _parse_skill_md
 
 
@@ -112,15 +113,18 @@ def test_startup_with_empty_dir():
     """skills 目录为空时索引也为空。"""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Patch _SKILLS_DIR to point to empty dir
-        original = skillService._SKILLS_DIR
-        skillService._SKILLS_DIR = tmpdir
+        original_builtin = appPaths.BUILTIN_SKILLS_DIR
+        original_user = appPaths.USER_SKILLS_DIR
+        appPaths.BUILTIN_SKILLS_DIR = tmpdir
+        appPaths.USER_SKILLS_DIR = "/nonexistent/skills/user"
         try:
             skillService.startup()
             assert skillService.get_all_skills() == []
             assert skillService.get_skill("nonexistent") is None
             assert skillService.is_valid_skill("nonexistent") is False
         finally:
-            skillService._SKILLS_DIR = original
+            appPaths.BUILTIN_SKILLS_DIR = original_builtin
+            appPaths.USER_SKILLS_DIR = original_user
 
 
 def test_startup_with_valid_skill():
@@ -135,8 +139,10 @@ def test_startup_with_valid_skill():
         with open(os.path.join(skill_dir, "reference.txt"), "w", encoding="utf-8") as f:
             f.write("参考文件内容")
 
-        original = skillService._SKILLS_DIR
-        skillService._SKILLS_DIR = tmpdir
+        original_builtin = appPaths.BUILTIN_SKILLS_DIR
+        original_user = appPaths.USER_SKILLS_DIR
+        appPaths.BUILTIN_SKILLS_DIR = tmpdir
+        appPaths.USER_SKILLS_DIR = "/nonexistent/skills/user"
         try:
             skillService.startup()
 
@@ -151,7 +157,8 @@ def test_startup_with_valid_skill():
             assert "SKILL.md" in info.files
             assert "reference.txt" in info.files
         finally:
-            skillService._SKILLS_DIR = original
+            appPaths.BUILTIN_SKILLS_DIR = original_builtin
+            appPaths.USER_SKILLS_DIR = original_user
 
 
 def test_startup_skips_dir_without_skill_md():
@@ -160,13 +167,16 @@ def test_startup_skips_dir_without_skill_md():
         # 子目录无 SKILL.md
         os.makedirs(os.path.join(tmpdir, "empty_skill"))
 
-        original = skillService._SKILLS_DIR
-        skillService._SKILLS_DIR = tmpdir
+        original_builtin = appPaths.BUILTIN_SKILLS_DIR
+        original_user = appPaths.USER_SKILLS_DIR
+        appPaths.BUILTIN_SKILLS_DIR = tmpdir
+        appPaths.USER_SKILLS_DIR = "/nonexistent/skills/user"
         try:
             skillService.startup()
             assert skillService.get_all_skills() == []
         finally:
-            skillService._SKILLS_DIR = original
+            appPaths.BUILTIN_SKILLS_DIR = original_builtin
+            appPaths.USER_SKILLS_DIR = original_user
 
 
 def test_startup_skips_invalid_front_matter():
@@ -177,13 +187,16 @@ def test_startup_skips_invalid_front_matter():
         with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
             f.write("# No front matter here\n")
 
-        original = skillService._SKILLS_DIR
-        skillService._SKILLS_DIR = tmpdir
+        original_builtin = appPaths.BUILTIN_SKILLS_DIR
+        original_user = appPaths.USER_SKILLS_DIR
+        appPaths.BUILTIN_SKILLS_DIR = tmpdir
+        appPaths.USER_SKILLS_DIR = "/nonexistent/skills/user"
         try:
             skillService.startup()
             assert skillService.get_all_skills() == []
         finally:
-            skillService._SKILLS_DIR = original
+            appPaths.BUILTIN_SKILLS_DIR = original_builtin
+            appPaths.USER_SKILLS_DIR = original_user
 
 
 def test_startup_name_mismatch_uses_dir_name():
@@ -194,26 +207,32 @@ def test_startup_name_mismatch_uses_dir_name():
         with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
             f.write("---\nname: different_name\ndescription: desc\n---\n\n# Content\n")
 
-        original = skillService._SKILLS_DIR
-        skillService._SKILLS_DIR = tmpdir
+        original_builtin = appPaths.BUILTIN_SKILLS_DIR
+        original_user = appPaths.USER_SKILLS_DIR
+        appPaths.BUILTIN_SKILLS_DIR = tmpdir
+        appPaths.USER_SKILLS_DIR = "/nonexistent/skills/user"
         try:
             skillService.startup()
             info = skillService.get_skill("dir_name")
             assert info is not None
             assert info.name == "dir_name"
         finally:
-            skillService._SKILLS_DIR = original
+            appPaths.BUILTIN_SKILLS_DIR = original_builtin
+            appPaths.USER_SKILLS_DIR = original_user
 
 
 def test_startup_nonexistent_dir():
     """skills 目录不存在时不报错，索引为空。"""
-    original = skillService._SKILLS_DIR
-    skillService._SKILLS_DIR = "/nonexistent/path/skills"
+    original_builtin = appPaths.BUILTIN_SKILLS_DIR
+    original_user = appPaths.USER_SKILLS_DIR
+    appPaths.BUILTIN_SKILLS_DIR = "/nonexistent/path/skills"
+    appPaths.USER_SKILLS_DIR = "/nonexistent/path/skills2"
     try:
         skillService.startup()
         assert skillService.get_all_skills() == []
     finally:
-        skillService._SKILLS_DIR = original
+        appPaths.BUILTIN_SKILLS_DIR = original_builtin
+        appPaths.USER_SKILLS_DIR = original_user
 
 
 # ─── load_skill_content / load_skill_files tests ────────────────
@@ -228,26 +247,32 @@ def test_load_skill_content_returns_markdown():
         with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
             f.write(md_content)
 
-        original = skillService._SKILLS_DIR
-        skillService._SKILLS_DIR = tmpdir
+        original_builtin = appPaths.BUILTIN_SKILLS_DIR
+        original_user = appPaths.USER_SKILLS_DIR
+        appPaths.BUILTIN_SKILLS_DIR = tmpdir
+        appPaths.USER_SKILLS_DIR = "/nonexistent/skills/user"
         try:
             skillService.startup()
             info = skillService.get_skill("readable_skill")
             assert info is not None
             assert info.content == md_content
         finally:
-            skillService._SKILLS_DIR = original
+            appPaths.BUILTIN_SKILLS_DIR = original_builtin
+            appPaths.USER_SKILLS_DIR = original_user
 
 
 def test_load_skill_content_nonexistent_returns_none():
     """加载不存在的 Skill 内容返回 None。"""
-    original = skillService._SKILLS_DIR
-    skillService._SKILLS_DIR = "/nonexistent/skills"
+    original_builtin = appPaths.BUILTIN_SKILLS_DIR
+    original_user = appPaths.USER_SKILLS_DIR
+    appPaths.BUILTIN_SKILLS_DIR = "/nonexistent/skills"
+    appPaths.USER_SKILLS_DIR = "/nonexistent/skills2"
     try:
         skillService.startup()
         assert skillService.get_skill("no_such_skill") is None
     finally:
-        skillService._SKILLS_DIR = original
+        appPaths.BUILTIN_SKILLS_DIR = original_builtin
+        appPaths.USER_SKILLS_DIR = original_user
 
 
 def test_load_skill_files_returns_relative_paths():
@@ -260,8 +285,10 @@ def test_load_skill_files_returns_relative_paths():
         with open(os.path.join(skill_dir, "guide.md"), "w", encoding="utf-8") as f:
             f.write("Guide content")
 
-        original = skillService._SKILLS_DIR
-        skillService._SKILLS_DIR = tmpdir
+        original_builtin = appPaths.BUILTIN_SKILLS_DIR
+        original_user = appPaths.USER_SKILLS_DIR
+        appPaths.BUILTIN_SKILLS_DIR = tmpdir
+        appPaths.USER_SKILLS_DIR = "/nonexistent/skills/user"
         try:
             skillService.startup()
             info = skillService.get_skill("files_skill")
@@ -269,18 +296,22 @@ def test_load_skill_files_returns_relative_paths():
             assert "SKILL.md" in info.files
             assert "guide.md" in info.files
         finally:
-            skillService._SKILLS_DIR = original
+            appPaths.BUILTIN_SKILLS_DIR = original_builtin
+            appPaths.USER_SKILLS_DIR = original_user
 
 
 def test_load_skill_files_nonexistent_returns_none():
     """查询不存在的 Skill 文件列表返回 None。"""
-    original = skillService._SKILLS_DIR
-    skillService._SKILLS_DIR = "/nonexistent/skills"
+    original_builtin = appPaths.BUILTIN_SKILLS_DIR
+    original_user = appPaths.USER_SKILLS_DIR
+    appPaths.BUILTIN_SKILLS_DIR = "/nonexistent/skills"
+    appPaths.USER_SKILLS_DIR = "/nonexistent/skills2"
     try:
         skillService.startup()
         assert skillService.get_skill("no_such_skill") is None
     finally:
-        skillService._SKILLS_DIR = original
+        appPaths.BUILTIN_SKILLS_DIR = original_builtin
+        appPaths.USER_SKILLS_DIR = original_user
 
 
 def test_startup_multiple_skills():
@@ -292,8 +323,10 @@ def test_startup_multiple_skills():
             with open(os.path.join(d, "SKILL.md"), "w", encoding="utf-8") as f:
                 f.write(f"---\nname: {name}\ndescription: {name} desc\n---\n\n# {name}\n")
 
-        original = skillService._SKILLS_DIR
-        skillService._SKILLS_DIR = tmpdir
+        original_builtin = appPaths.BUILTIN_SKILLS_DIR
+        original_user = appPaths.USER_SKILLS_DIR
+        appPaths.BUILTIN_SKILLS_DIR = tmpdir
+        appPaths.USER_SKILLS_DIR = "/nonexistent/skills/user"
         try:
             skillService.startup()
             all_skills = skillService.get_all_skills()
@@ -305,4 +338,5 @@ def test_startup_multiple_skills():
                 assert skillService.is_valid_skill(name) is True
                 assert skillService.get_skill(name) is not None
         finally:
-            skillService._SKILLS_DIR = original
+            appPaths.BUILTIN_SKILLS_DIR = original_builtin
+            appPaths.USER_SKILLS_DIR = original_user

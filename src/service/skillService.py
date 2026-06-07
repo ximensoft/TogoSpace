@@ -7,10 +7,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import yaml
+import appPaths
 
 logger = logging.getLogger(__name__)
-
-_SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "skills")
 
 _SKILL_MD = "SKILL.md"
 
@@ -21,6 +20,7 @@ class SkillInfo:
     name: str
     description: str
     skill_dir: str
+    is_builtin: bool = True
     content: str = ""
     files: list[str] = field(default_factory=list)
 
@@ -28,29 +28,36 @@ class SkillInfo:
 _registry: dict[str, SkillInfo] = {}
 
 
-def startup() -> None:
-    """扫描 assets/skills/ 目录，构建全局 Skill 索引。"""
-    global _registry
-    _registry = {}
-
-    if not os.path.isdir(_SKILLS_DIR):
-        logger.info("Skill 目录不存在，跳过扫描: %s", _SKILLS_DIR)
+def _scan_skills_in_dir(scan_dir: str, is_builtin: bool) -> None:
+    if not os.path.isdir(scan_dir):
+        logger.info("Skill 目录不存在，跳过扫描: %s", scan_dir)
         return
 
-    for entry in os.listdir(_SKILLS_DIR):
-        skill_dir = os.path.join(_SKILLS_DIR, entry)
+    for entry in os.listdir(scan_dir):
+        skill_dir = os.path.join(scan_dir, entry)
         if not os.path.isdir(skill_dir):
             continue
 
-        skill_info = load_skill_from_disk(skill_dir)
+        skill_info = load_skill_from_disk(skill_dir, is_builtin=is_builtin)
         if skill_info:
+            if skill_info.name in _registry:
+                logger.info("覆盖同名 Skill: %s (原 is_builtin=%s, 新 is_builtin=%s)", 
+                            skill_info.name, _registry[skill_info.name].is_builtin, is_builtin)
             _registry[skill_info.name] = skill_info
-            logger.info("已加载 Skill: %s (%s)", skill_info.name, skill_info.description[:50])
+            logger.info("已加载 Skill: %s (%s) [builtin=%s]", skill_info.name, skill_info.description[:50], is_builtin)
+
+def startup() -> None:
+    """扫描 assets/skills/ 目录以及 storage_root 的 skills 目录，构建全局 Skill 索引。"""
+    global _registry
+    _registry = {}
+
+    _scan_skills_in_dir(appPaths.BUILTIN_SKILLS_DIR, is_builtin=True)
+    _scan_skills_in_dir(appPaths.USER_SKILLS_DIR, is_builtin=False)
 
     logger.info("Skill 索引构建完成，共 %d 个 Skill", len(_registry))
 
 
-def load_skill_from_disk(skill_dir: str) -> Optional[SkillInfo]:
+def load_skill_from_disk(skill_dir: str, is_builtin: bool = True) -> Optional[SkillInfo]:
     """从本地目录加载并解析一个 Skill。"""
     entry = os.path.basename(skill_dir)
     skill_md_path = os.path.join(skill_dir, _SKILL_MD)
@@ -81,6 +88,7 @@ def load_skill_from_disk(skill_dir: str) -> Optional[SkillInfo]:
         description=description,
         content=content,
         skill_dir=skill_dir,
+        is_builtin=is_builtin,
         files=files,
     )
 

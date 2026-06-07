@@ -1191,6 +1191,7 @@ async def load_skill(
         "success": True,
         "skill_name": skill_info.name,
         "skill_dir": skill_info.skill_dir,
+        "is_builtin": skill_info.is_builtin,
         "description": skill_info.description,
         "content": content,
         "files": files,
