@@ -39,7 +39,7 @@ async def test_hot_reload_agent_success(mock_managers):
     mock_managers["team"].get_team_by_id = AsyncMock(return_value=gt_team)
     
     gt_role_template = MagicMock(id=2, name="TestTemplate")
-    mock_managers["template"].get_role_template = AsyncMock(return_value=gt_role_template)
+    mock_managers["template"].get_role_template_by_id = AsyncMock(return_value=gt_role_template)
     
     dept_root = MagicMock(manager_id=None)
     mock_managers["dept"].get_dept_tree = AsyncMock(return_value=dept_root)
