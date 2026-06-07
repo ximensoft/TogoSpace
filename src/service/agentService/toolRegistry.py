@@ -68,7 +68,7 @@ def build_runtime_allow_specs(
     is_root_leader: bool,
 ) -> list[str]:
     """根据 allowed_tools 和角色构建实际生效的运行时工具规格列表。"""
-    if not allowed_tools:
+    if allowed_tools is None:
         effective_specs = ["Category:Basic", "Category:Read", "Category:Write", "Category:Execute"]
     else:
         effective_specs = list(allowed_tools)

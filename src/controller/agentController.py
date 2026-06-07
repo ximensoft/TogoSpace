@@ -296,12 +296,13 @@ class AgentModifyPropertiesHandler(BaseHandler):
 
         request = self.parse_request(AgentModifyPropertiesRequest)
 
-        if request.allow_tools is not None:
-            error_msg = validate_tool_allow_specs(request.allow_tools)
-            assertUtil.assertEqual(error_msg, None, error_message=error_msg or "", error_code="invalid_tool_allow_specs")
+        if "allow_tools" in request.model_fields_set:
+            if request.allow_tools is not None:
+                error_msg = validate_tool_allow_specs(request.allow_tools)
+                assertUtil.assertEqual(error_msg, None, error_message=error_msg or "", error_code="invalid_tool_allow_specs")
             agent.allow_tools = request.allow_tools
         
-        if request.allow_skills is not None:
+        if "allow_skills" in request.model_fields_set:
             agent.allow_skills = request.allow_skills
 
         await agent.aio_save()
