@@ -84,8 +84,11 @@ def load_skill_from_disk(skill_dir: str, is_builtin: bool = True) -> Optional[Sk
 
     # 收集目录下的相对文件路径
     files = []
-    for root, _dirs, filenames in os.walk(skill_dir):
+    for root, dirs, filenames in os.walk(skill_dir):
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
         for filename in filenames:
+            if filename.endswith('.pyc') or filename == '.DS_Store' or filename.startswith('.'):
+                continue
             abs_path = os.path.join(root, filename)
             rel_path = os.path.relpath(abs_path, skill_dir)
             files.append(rel_path)
