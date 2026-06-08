@@ -55,6 +55,31 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+
+# ====================== 安装 Swift ======================
+# 先复制已下载的 https://download.swift.org/swift-6.1-release/ubuntu2404/swift-6.1-RELEASE/swift-6.1-RELEASE-ubuntu24.04.tar.gz （放在 Dockerfile 同目录）
+COPY swift-6.1-RELEASE-ubuntu24.04.tar.gz /tmp/swift.tar.gz
+
+# 创建安装目录并解压 Swift
+RUN apt-get update && apt-get install -y \
+    clang \
+    libicu-dev \
+    libcurl4-openssl-dev \
+    libxml2-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    \
+    && mkdir -p /usr/share/swift \
+    && tar -xzf /tmp/swift.tar.gz -C /usr/share/swift --strip-components=1 \
+    && rm /tmp/swift.tar.gz \
+    \
+    # 配置环境变量
+    && echo 'export PATH=/usr/share/swift/usr/bin:$PATH' >> /etc/profile \
+    && echo 'export PATH=/usr/share/swift/usr/bin:$PATH' >> /root/.bashrc \
+    \
+    # 验证安装
+    && ls -la /usr/share/swift/usr/bin/swift* \
+    && /usr/share/swift/usr/bin/swift --version
+
 # 创建应用目录和数据目录
 RUN mkdir -p ${TOGOSPACE_HOME} ${STORAGE_ROOT}
 
@@ -73,7 +98,7 @@ COPY --from=frontend-builder /build/frontend/dist ${TOGOSPACE_HOME}/assets/front
 # 创建 Python 虚拟环境并安装依赖
 RUN python3 -m venv .venv \
     && .venv/bin/pip install --upgrade pip \
-    && .venv/bin/pip install -r requirements.txt
+    && .venv/bin/pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # 创建默认配置文件
 RUN mkdir -p ${STORAGE_ROOT} \
